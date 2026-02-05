@@ -1,0 +1,63 @@
+{
+"aliases": {
+"ny": "new york",
+"musee dorsay": "musée d'orsay",
+"museo orsay": "musée d'orsay",
+"orsay": "musée d'orsay",
+"pompidou": "centre pompidou",
+"musee pompidou": "centre pompidou",
+"ermitage": "hermitage"
+},
+"entries": [
+{
+"key": "louvre",
+"label": "Louvre",
+"kind": "collection",
+"url": "PASTE_IIIF_COLLECTION_URL_HERE",
+"targetSize": 350
+},
+{
+"key": "musée d'orsay",
+"label": "Musée d'Orsay",
+"kind": "collection",
+"url": "PASTE_IIIF_COLLECTION_URL_HERE",
+"targetSize": 280
+},
+{
+"key": "centre pompidou",
+"label": "Centre Pompidou",
+"kind": "collection",
+"url": "PASTE_IIIF_COLLECTION_URL_HERE",
+"targetSize": 280
+},
+{
+"key": "hermitage",
+"label": "Hermitage",
+"kind": "collection",
+"url": "PASTE_IIIF_COLLECTION_URL_HERE",
+"targetSize": 350
+},
+{
+"key": "modigliani",
+"label": "Amedeo Modigliani",
+"kind": "manifest",
+"url": "PASTE_IIIF_MANIFEST_URL_HERE",
+"author": "Amedeo Modigliani",
+"targetSize": 60,
+"closingCard": {
+"line1": "Amedeo Modigliani",
+"line2": "1884–1920 · Italian artist, active in Paris"
+}
+},
+{
+"key": "rinascimento",
+"label": "Renaissance",
+"kind": "bundle",
+"manifests": [
+"PASTE_MANIFEST_URL_1",
+"PASTE_MANIFEST_URL_2"
+],
+"targetSize": 420
+}
+]
+}
