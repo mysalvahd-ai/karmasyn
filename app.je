@@ -1,0 +1,545 @@
+/* KARMASYN V1 — IIIF map-first (GitHub Pages only) */
+
+const app = document.getElementById("app");
+const homeOverlay = document.getElementById("homeOverlay");
+const metaLine1 = document.getElementById("metaLine1");
+const metaLine2 = document.getElementById("metaLine2");
+const hintEl = document.getElementById("hint");
+
+const searchBtn = document.getElementById("searchBtn");
+const playBtn = document.getElementById("playBtn");
+const searchPanel = document.getElementById("searchPanel");
+const searchForm = document.getElementById("searchForm");
+const searchInput = document.getElementById("searchInput");
+
+const norm = (s) => (s || "").trim().toLowerCase();
+
+/* ---------------------------
+State
+---------------------------- */
+
+let state = {
+exhibition: null,
+idx: 0,
+playing: true,
+userInterrupted: false,
+homeHidden: false,
+
+// micro-hint control
+seenCount: 0,
+lastHintAtIndex: -999,
+lastHintTime: 0,
+hintTimer1: null,
+hintTimer2: null,
+};
+
+const RITUAL_INTERVAL_MS = 3000;
+
+/* ---------------------------
+Slides
+---------------------------- */
+
+let currentSlide = null;
+let nextSlide = null;
+
+function initSlides(){
+currentSlide = document.createElement("div");
+currentSlide.className = "slide";
+currentSlide.appendChild(document.createElement("img"));
+
+nextSlide = document.createElement("div");
+nextSlide.className = "slide";
+nextSlide.appendChild(document.createElement("img"));
+
+app.appendChild(nextSlide);
+app.appendChild(currentSlide);
+}
+
+function setImage(slide, item){
+const img = slide.querySelector("img");
+img.src = item.img;
+img.alt = `${item.author || "Unknown"}, ${item.year || ""}`;
+}
+
+function renderMeta(item){
+if(item.closingCard){
+metaLine1.textContent = item.closingCard.line1 || "";
+metaLine2.textContent = item.closingCard.line2 || "";
+return;
+}
+const a = item.author || "Unknown";
+const y = item.year ? `${item.year}` : "";
+const loc = item.location || "";
+metaLine1.textContent = [a, y].filter(Boolean).join(", ");
+metaLine2.textContent = loc;
+}
+
+function swapSlides(){
+const tmp = currentSlide;
+currentSlide = nextSlide;
+nextSlide = tmp;
+app.appendChild(nextSlide);
+app.appendChild(currentSlide);
+}
+
+/* ---------------------------
+Micro-suggestions (rules)
+---------------------------- */
+
+function clearHintTimers(){
+if(state.hintTimer1) clearTimeout(state.hintTimer1);
+if(state.hintTimer2) clearTimeout(state.hintTimer2);
+state.hintTimer1 = null;
+state.hintTimer2 = null;
+}
+
+function showHint(text){
+hintEl.textContent = text;
+hintEl.classList.add("show");
+}
+function hideHint(){
+hintEl.classList.remove("show");
+}
+
+function generateHintText(){
+const pool = [
+"Light feels intentional",
+"Color suggests distance",
+"Reality slightly displaced",
+"Dream logic, solid form",
+"Vision ahead of its time",
+"Light hides more than shows",
+"Form anticipates change",
+"Purpose inside stillness",
+"Seeing before knowing",
+"Time sits on the surface",
+"Balance feels temporary",
+"Matter over decoration",
+"The ground matters",
+"Silence holds the scene",
+"Color carries intention",
+"Vision over observation",
+"Reality turned symbolic",
+"Future thinking in form",
+"This feels imagined first",
+"Light doesn’t belong here"
+];
+return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function maybeScheduleHint(item){
+clearHintTimers();
+hideHint();
+
+if(searchPanel.classList.contains("open")) return;
+if(state.seenCount < 2) return;
+
+// density ~20%
+if(Math.random() >= 0.20) return;
+
+// never consecutive: min 3 silent images after last hint
+if(state.idx - state.lastHintAtIndex < 4) return;
+
+// max 1 hint every 20s
+const now = Date.now();
+if(now - state.lastHintTime < 20000) return;
+
+// avoid loud items
+if(item.loud) return;
+
+const hintText = generateHintText();
+
+// only if image stays >= 2.5s
+state.hintTimer1 = setTimeout(() => {
+if(!state.playing && state.userInterrupted) return;
+showHint(hintText);
+state.lastHintAtIndex = state.idx;
+state.lastHintTime = Date.now();
+state.hintTimer2 = setTimeout(() => hideHint(), 1900);
+}, 2500);
+}
+
+/* ---------------------------
+Exhibition engine
+---------------------------- */
+
+function showIndex(i){
+const items = state.exhibition.items;
+const safeI = (i + items.length) % items.length;
+state.idx = safeI;
+
+const item = items[safeI];
+setImage(currentSlide, item);
+renderMeta(item);
+
+const nextItem = items[(safeI + 1) % items.length];
+setImage(nextSlide, nextItem);
+
+state.seenCount += 1;
+maybeScheduleHint(item);
+}
+
+let ritualTimer = null;
+
+function startRitual(){
+if(ritualTimer) clearInterval(ritualTimer);
+state.playing = true;
+state.userInterrupted = false;
+playBtn.classList.remove("visible");
+ritualTimer = setInterval(() => advance(), RITUAL_INTERVAL_MS);
+}
+
+function stopRitual(){
+state.playing = false;
+state.userInterrupted = true;
+if(ritualTimer) clearInterval(ritualTimer);
+ritualTimer = null;
+playBtn.classList.add("visible");
+}
+
+function advance(){
+clearHintTimers();
+hideHint();
+swapSlides();
+showIndex(state.idx + 1);
+}
+
+/* ---------------------------
+IIIF loader
+---------------------------- */
+
+const IIIF_MAP_URL = "./data/iiif-map.json";
+let iiifMap = null;
+const fetchCache = new Map();
+
+async function fetchJson(url){
+if(fetchCache.has(url)) return fetchCache.get(url);
+const p = fetch(url, { cache: "force-cache" }).then(async r => {
+if(!r.ok) throw new Error(`Fetch failed: ${r.status} ${url}`);
+return r.json();
+});
+fetchCache.set(url, p);
+return p;
+}
+
+function getLabel(obj){
+if(!obj) return "";
+if(typeof obj === "string") return obj;
+if(obj.en?.[0]) return obj.en[0];
+const anyKey = Object.keys(obj)[0];
+return obj[anyKey]?.[0] || "";
+}
+
+function pickBestImageService(canvas){
+try{
+const annoPage = canvas.items?.[0];
+const anno = annoPage.items?.[0];
+const body = anno.body;
+const services = body.service || [];
+const svc = Array.isArray(services) ? services[0] : services;
+return svc.id || svc["@id"] || null;
+}catch{
+return null;
+}
+}
+
+function canvasFallbackImage(canvas){
+try{
+const annoPage = canvas.items?.[0];
+const anno = annoPage.items?.[0];
+const body = anno.body;
+return body.id || body["@id"] || null;
+}catch{
+return null;
+}
+}
+
+function makeIIIFImageUrl(serviceId, width=1600){
+return `${serviceId}/full/${width},/0/default.jpg`;
+}
+
+function extractYearFromText(s){
+if(!s) return "";
+const m = `${s}`.match(/\b(1[4-9]\d{2}|20\d{2})\b/);
+return m ? m[1] : "";
+}
+
+function buildItemsFromManifest(manifest, overrides={}){
+const canvases = manifest.items || [];
+const items = [];
+
+const provider = manifest.provider?.[0]?.label ? getLabel(manifest.provider[0].label) : "";
+const location = overrides.location || provider || "";
+
+for(const c of canvases){
+const serviceId = pickBestImageService(c);
+const fallback = canvasFallbackImage(c);
+const img = serviceId ? makeIIIFImageUrl(serviceId) : fallback;
+if(!img) continue;
+
+let year = overrides.year || "";
+if(!year && Array.isArray(manifest.metadata)){
+const dateEntry = manifest.metadata.find(x => /date|year|anno|data/i.test(getLabel(x.label)));
+year = extractYearFromText(getLabel(dateEntry?.value));
+}
+
+const loud = /text|inscription|detail|violent|battle/i.test(getLabel(c.label));
+
+items.push({
+img,
+author: overrides.author || "Unknown",
+year,
+location,
+loud
+});
+}
+
+if(overrides.closingCard){
+items.push({
+img: items[items.length-1]?.img || items[0]?.img || "",
+author: "",
+year: "",
+location: "",
+loud: true,
+closingCard: overrides.closingCard
+});
+}
+
+return {
+title: overrides.title || getLabel(manifest.label) || "Exhibition",
+kind: overrides.kind || "manifest",
+items
+};
+}
+
+async function listManifestsFromCollection(collectionUrl, limit=120){
+const out = [];
+const visited = new Set();
+
+async function walk(url){
+if(visited.has(url)) return;
+visited.add(url);
+const col = await fetchJson(url);
+const items = col.items || col.manifests || [];
+for(const it of items){
+const type = it.type || it["@type"] || "";
+const id = it.id || it["@id"];
+if(!id) continue;
+
+if(/manifest/i.test(type)) out.push(id);
+else if(/collection/i.test(type)) await walk(id);
+
+if(out.length >= limit) return;
+}
+}
+
+await walk(collectionUrl);
+return out.slice(0, limit);
+}
+
+function shuffle(arr){
+const a = arr.slice();
+for(let i=a.length-1;i>0;i--){
+const j = Math.floor(Math.random()*(i+1));
+[a[i],a[j]] = [a[j],a[i]];
+}
+return a;
+}
+
+async function buildFromCollection(entry){
+const target = entry.targetSize || 260;
+const manifestUrls = await listManifestsFromCollection(entry.url, 140);
+const picks = shuffle(manifestUrls).slice(0, 25); // perf: max 25 manifests
+const items = [];
+
+for(const mUrl of picks){
+try{
+const m = await fetchJson(mUrl);
+const ex = buildItemsFromManifest(m, {
+author: "Unknown",
+location: entry.label || entry.key
+});
+items.push(...shuffle(ex.items).slice(0, 14));
+if(items.length >= target) break;
+}catch{
+// silent
+}
+}
+
+return { title: entry.label || entry.key, kind:"collection", items: items.slice(0, target) };
+}
+
+async function buildFromManifestEntry(entry){
+const m = await fetchJson(entry.url);
+return buildItemsFromManifest(m, {
+title: entry.label || entry.key,
+kind: "artist",
+author: entry.author || entry.label || entry.key,
+location: entry.location || "",
+closingCard: entry.closingCard || null
+});
+}
+
+async function buildFromBundle(entry){
+const target = entry.targetSize || 320;
+const picks = shuffle(entry.manifests || []).slice(0, 35);
+const items = [];
+for(const mUrl of picks){
+try{
+const m = await fetchJson(mUrl);
+const ex = buildItemsFromManifest(m, {
+author: "Unknown",
+location: entry.label || entry.key
+});
+items.push(...shuffle(ex.items).slice(0, 16));
+if(items.length >= target) break;
+}catch{
+// silent
+}
+}
+return { title: entry.label || entry.key, kind:"bundle", items: items.slice(0, target) };
+}
+
+function resolveEntry(query){
+const t = norm(query);
+if(!t || !iiifMap) return null;
+
+const aliases = iiifMap.aliases || {};
+const key = aliases[t] ? aliases[t] : t;
+
+const entries = iiifMap.entries || [];
+return entries.find(e => norm(e.key) === key) || null;
+}
+
+async function openExhibitionForQuery(q){
+const entry = resolveEntry(q);
+if(!entry) return null;
+
+if(entry.kind === "collection") return await buildFromCollection(entry);
+if(entry.kind === "manifest") return await buildFromManifestEntry(entry);
+if(entry.kind === "bundle") return await buildFromBundle(entry);
+
+return null;
+}
+
+/* ---------------------------
+Ritual fallback (works even without IIIF)
+---------------------------- */
+
+function picsum(id, w=1600, h=1000){
+return `https://picsum.photos/id/${id}/${w}/${h}`;
+}
+
+function buildRitual(){
+const items = [];
+const base = Math.floor(Math.random()*600) + 10;
+for(let i=0;i<500;i++){
+const id = (base + i) % 900;
+items.push({ img: picsum(id), author:"", year:"", location:"", loud:(i%11===0) });
+}
+return { title:"Ritual", kind:"ritual", items };
+}
+
+/* ---------------------------
+UI interactions
+---------------------------- */
+
+function hideHomeOnce(){
+if(state.homeHidden) return;
+state.homeHidden = true;
+homeOverlay.classList.add("hidden");
+}
+
+function toggleSearch(open){
+const willOpen = (open !== undefined) ? open : !searchPanel.classList.contains("open");
+if(willOpen){
+searchPanel.classList.add("open");
+searchPanel.setAttribute("aria-hidden","false");
+searchInput.value = "";
+searchInput.focus();
+clearHintTimers();
+hideHint();
+}else{
+searchPanel.classList.remove("open");
+searchPanel.setAttribute("aria-hidden","true");
+}
+}
+
+searchBtn.addEventListener("click", (e) => {
+e.stopPropagation();
+hideHomeOnce();
+toggleSearch(true);
+});
+
+playBtn.addEventListener("click", (e) => {
+e.stopPropagation();
+hideHomeOnce();
+startRitual();
+});
+
+["pointerdown","wheel","touchstart","keydown"].forEach(evt => {
+window.addEventListener(evt, () => {
+hideHomeOnce();
+if(state.playing) stopRitual();
+}, { passive:true });
+});
+
+let startX = null;
+window.addEventListener("pointerdown", (e) => { startX = e.clientX; }, { passive:true });
+window.addEventListener("pointerup", (e) => {
+if(startX === null) return;
+const dx = e.clientX - startX;
+startX = null;
+if(Math.abs(dx) < 60) return;
+clearHintTimers(); hideHint();
+swapSlides();
+showIndex(state.idx + (dx < 0 ? 1 : -1));
+}, { passive:true });
+
+searchForm.addEventListener("submit", async (e) => {
+e.preventDefault();
+const q = searchInput.value || "";
+toggleSearch(false);
+
+try{
+const ex = await openExhibitionForQuery(q);
+if(ex && ex.items && ex.items.length){
+state.exhibition = ex;
+state.idx = 0;
+state.seenCount = 0;
+state.lastHintAtIndex = -999;
+clearHintTimers(); hideHint();
+showIndex(0);
+stopRitual();
+}else{
+// silent: keep current
+}
+}catch{
+// silent: keep current
+}
+});
+
+/* ---------------------------
+Boot
+---------------------------- */
+
+async function boot(){
+initSlides();
+
+try{
+iiifMap = await fetchJson(IIIF_MAP_URL);
+}catch{
+iiifMap = null;
+}
+
+state.exhibition = buildRitual();
+showIndex(0);
+startRitual();
+
+window.addEventListener("click", () => {
+if(searchPanel.classList.contains("open")) toggleSearch(false);
+});
+searchPanel.addEventListener("click", (e) => e.stopPropagation());
+}
+
+boot();
