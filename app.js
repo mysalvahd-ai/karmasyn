@@ -81,6 +81,7 @@ stopRitual("stopped by human");
 window.karmasynStart = function(){
 overlay.classList.add("hidden");
 humanStopped = false; // reset
+showRandomIIIF();
 startRitual();
 };
 
