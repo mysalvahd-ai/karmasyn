@@ -1,186 +1,123 @@
 (() => {
 "use strict";
 
-// --- DOM
 const overlay = document.getElementById("homeOverlay");
+const titleH1 = document.querySelector("#title h1");
+const titleP = document.querySelector("#title p");
 const meta = document.getElementById("meta");
-const hint = document.getElementById("hint");
 const playBtn = document.getElementById("playBtn");
 const searchBtn = document.getElementById("searchBtn");
 const searchPanel = document.getElementById("searchPanel");
 const searchInput = document.getElementById("searchInput");
-const artTitle = document.getElementById("artTitle");
-const titleH1 = artTitle.querySelector("h1");
-const titleP = artTitle.querySelector("p");
 
-// --- Minimal demo data (replace later with your dataset)
-const DEMO = [
+const WORKS = [
 "Caravaggio — The Calling of Saint Matthew",
 "Klimt — The Kiss",
 "Morandi — Natura morta",
 "Basquiat — Untitled",
-"Modigliani — Portrait of Jeanne Hébuterne",
+"Modigliani — Jeanne Hébuterne",
 "Turner — Rain, Steam and Speed",
 "Rothko — No. 14",
 "Hokusai — The Great Wave",
-"Vermeer — Girl with a Pearl Earring",
-"Goya — Saturn Devouring His Son",
+"Vermeer — Girl with a Pearl Earring"
 ];
 
-// --- State
-let ritualOn = false;
-let userIntervened = false; // first human gesture stops ritual (your rule)
-let i = 0;
+let index = 0;
 let timer = null;
-let startedAt = 0;
+let running = false;
+let startedAt = null;
+let humanStopped = false;
 
-function fmtTime(ms) {
-const s = Math.max(0, Math.floor(ms / 1000));
-const mm = String(Math.floor(s / 60)).padStart(2, "0");
-const ss = String(s % 60).padStart(2, "0");
-return `${mm}:${ss}`;
+function time() {
+if (!startedAt) return "00:00";
+const s = Math.floor((Date.now() - startedAt) / 1000);
+return `${String(Math.floor(s / 60)).padStart(2,"0")}:${String(s % 60).padStart(2,"0")}`;
 }
 
-function setMeta(status) {
-const t = fmtTime(Date.now() - startedAt);
-meta.textContent = `${t} · ${status}`;
+function updateMeta(state) {
+meta.textContent = `${time()} · ${state}`;
 }
 
-function renderCurrent(extra = "") {
-titleH1.textContent = DEMO[i % DEMO.length];
-titleP.textContent = extra || (ritualOn ? "RITUAL is running. Tap to stop." : "RITUAL is paused. Tap to begin.");
+function showWork(note) {
+titleH1.textContent = WORKS[index % WORKS.length];
+titleP.textContent = note;
+}
+
+function startRitual() {
+running = true;
+playBtn.textContent = "⏸";
+updateMeta("running");
+showWork("RITUAL is running. Tap to stop.");
+
+timer = setInterval(() => {
+index++;
+showWork("RITUAL is running. Tap to stop.");
+updateMeta("running");
+}, 3000);
 }
 
 function stopRitual(reason = "paused") {
-ritualOn = false;
-if (timer) clearInterval(timer);
-timer = null;
+running = false;
 playBtn.textContent = "▶";
-setMeta(reason);
-renderCurrent("RITUAL is paused. Tap to begin.");
-}
-
-function startRitual(reason = "running") {
-ritualOn = true;
-playBtn.textContent = "⏸";
-setMeta(reason);
-renderCurrent("RITUAL is running. Tap to stop.");
-
-if (timer) clearInterval(timer);
-timer = setInterval(() => {
-i++;
-renderCurrent("RITUAL is running. Tap to stop.");
-setMeta("running");
-}, 3000);
+clearInterval(timer);
+timer = null;
+updateMeta(reason);
+showWork("RITUAL is paused. Tap to resume.");
 }
 
 function toggleRitual() {
 if (!startedAt) startedAt = Date.now();
-ritualOn ? stopRitual("paused") : startRitual("running");
-}
-
-function closeSearch() {
-searchPanel.classList.remove("open");
-searchPanel.setAttribute("aria-hidden", "true");
-}
-
-function toggleSearch() {
-const open = searchPanel.classList.toggle("open");
-searchPanel.setAttribute("aria-hidden", String(!open));
-if (open) {
-searchInput.focus();
-setMeta("search");
-} else {
-setMeta(ritualOn ? "running" : "paused");
-}
-}
-
-function seek(query) {
-// demo seek: find first item that includes query; replace with real search later
-const q = (query || "").trim().toLowerCase();
-if (!q) return;
-
-const idx = DEMO.findIndex(s => s.toLowerCase().includes(q));
-if (idx >= 0) {
-i = idx;
-renderCurrent(`SEEK: "${query}"`);
-setMeta(`seek: ${query}`);
-} else {
-renderCurrent(`SEEK: no result for "${query}"`);
-setMeta(`seek: none`);
-}
-
-closeSearch();
+running ? stopRitual("paused") : startRitual();
 }
 
 function firstHumanGesture() {
-if (!userIntervened) {
-userIntervened = true;
-// rule: first gesture stops ritual (if it was running)
-if (ritualOn) stopRitual("stopped by human");
-hint.textContent = "SEEK · you stopped the ritual · press ▶ to resume";
+if (!humanStopped && running) {
+humanStopped = true;
+stopRitual("stopped by human");
 }
 }
 
-// --- Events
-function bindEvents() {
-// overlay starts the experience (and disappears)
-overlay.addEventListener("click", () => {
+function startFromOverlay(e) {
+e.preventDefault();
 overlay.classList.add("hidden");
 if (!startedAt) startedAt = Date.now();
-startRitual("running");
-});
+startRitual();
+}
 
-// play/pause
-playBtn.addEventListener("click", (e) => {
+/* EVENTS — iOS SAFE */
+overlay.addEventListener("pointerdown", startFromOverlay, { passive: false });
+overlay.addEventListener("touchstart", startFromOverlay, { passive: false });
+overlay.addEventListener("click", startFromOverlay);
+
+playBtn.addEventListener("pointerdown", e => {
 e.stopPropagation();
 firstHumanGesture();
 toggleRitual();
 });
 
-// search toggle
-searchBtn.addEventListener("click", (e) => {
+searchBtn.addEventListener("pointerdown", e => {
 e.stopPropagation();
+searchPanel.classList.toggle("open");
+if (searchPanel.classList.contains("open")) searchInput.focus();
+});
+
+searchInput.addEventListener("keydown", e => {
+if (e.key === "Enter") {
+const q = searchInput.value.toLowerCase();
+const found = WORKS.findIndex(w => w.toLowerCase().includes(q));
+if (found >= 0) index = found;
+showWork(`SEEK: ${searchInput.value}`);
+searchPanel.classList.remove("open");
+}
+});
+
+document.addEventListener("pointerdown", e => {
+if (overlay.classList.contains("hidden")) {
 firstHumanGesture();
-toggleSearch();
-});
-
-// global click: if ritual running, first click stops it. If paused, click starts it.
-document.addEventListener("click", (e) => {
-// ignore clicks inside search panel
-if (searchPanel.contains(e.target) || e.target === searchBtn || e.target === playBtn) return;
-
-// if overlay still visible, let overlay handler manage it
-if (!overlay.classList.contains("hidden")) return;
-
-firstHumanGesture();
-
-// click toggles ritual
-toggleRitual();
-});
-
-// ESC closes search
-document.addEventListener("keydown", (e) => {
-if (e.key === "Escape") closeSearch();
-});
-
-// Enter to search
-searchInput.addEventListener("keydown", (e) => {
-if (e.key === "Enter") seek(searchInput.value);
-});
 }
+});
 
-function init() {
-startedAt = 0;
-renderCurrent("Tap the pill to begin.");
-setMeta("idle");
-bindEvents();
-}
-
-// Make sure it runs
-if (document.readyState === "loading") {
-document.addEventListener("DOMContentLoaded", init);
-} else {
-init();
-}
+/* INIT */
+showWork("Tap the pill to begin.");
+updateMeta("idle");
 })();
