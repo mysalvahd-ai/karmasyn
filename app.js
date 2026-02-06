@@ -175,3 +175,8 @@ const imgUrl = iiifImageFromManifest(manifest);
 setStageImage(imgUrl);
 return { manifestUrl, imgUrl };
 }
+window.addEventListener("DOMContentLoaded", () => {
+if (typeof window.karmasynStart === "function") {
+window.karmasynStart();
+}
+});
