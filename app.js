@@ -436,89 +436,59 @@ scheduleRotateExhibition();
 
 let lastTapTs = 0;
 
-function onStageTap() {
-const now = Date.now();
-if (now - lastTapTs < 260) {
-// double tap
-lastTapTs = 0;
-togglePlay();
+// ---------------- pointer gestures (SAFE for iOS) ----------------
+let pStartX = null;
+let pStartY = null;
+let pStartTime = 0;
+let lastTapTime = 0;
+
+if (stage) {
+stage.addEventListener("pointerdown", (e) => {
+// ignore interactions when search is open
+if (searchPanel?.classList.contains("open")) return;
+
+pStartX = e.clientX;
+pStartY = e.clientY;
+pStartTime = Date.now();
+});
+
+stage.addEventListener("pointerup", (e) => {
+if (searchPanel?.classList.contains("open")) return;
+if (pStartX === null || pStartY === null) return;
+
+const dx = e.clientX - pStartX;
+const dy = e.clientY - pStartY;
+const dt = Date.now() - pStartTime;
+
+pStartX = null;
+pStartY = null;
+
+// SWIPE
+if (Math.abs(dx) > 60 && Math.abs(dy) < 60) {
+showHUD();
+manualUntil = Date.now() + MANUAL_HOLD_MS;
+
+if (dx < 0) nextItem(); // swipe left
+else prevItem(); // swipe right
 return;
 }
-lastTapTs = now;
-// single tap: toggle UI
+
+// TAP / DOUBLE TAP
+if (dt < 280) {
+const now = Date.now();
+if (now - lastTapTime < 300) {
+// double tap = play/pause
+lastTapTime = 0;
+togglePlay();
+} else {
+// single tap = toggle HUD
+lastTapTime = now;
 toggleHUD();
 }
-
-// Swipe detection (simple)
-let touchX = null;
-let touchY = null;
-
-function startManualHold() {
-manualUntil = Date.now() + MANUAL_HOLD_MS;
-// Keep playing, but pause auto-advance for the hold window
-// (the interval checks manualUntil)
 }
-
-function onTouchStart(e) {
-const t = e.touches?.[0];
-if (!t) return;
-touchX = t.clientX;
-touchY = t.clientY;
-}
-
-function onTouchEnd(e) {
-const t = e.changedTouches?.[0];
-if (!t || touchX === null || touchY === null) return;
-
-const dx = t.clientX - touchX;
-const dy = t.clientY - touchY;
-
-touchX = null; touchY = null;
-
-// horizontal swipe threshold
-if (Math.abs(dx) > 55 && Math.abs(dy) < 60) {
-showHUD(); // when user navigates, show info
-startManualHold();
-if (dx < 0) nextItem(); // swipe left = next
-else prevItem(); // swipe right = prev
-}
-}
-
-// ---------------- search ----------------
-function openSearch() {
-if (!searchPanel) return;
-searchPanel.classList.toggle("open");
-if (searchPanel.classList.contains("open")) {
-if (searchInput) searchInput.focus();
-// Opening search is an intentional interaction: keep playing but no need to pause automatically.
-// (User can pause with double tap if they want.)
-}
-}
-
-function renderSearchHints(q) {
-if (!searchResults) return;
-const s = (q || "").trim();
-if (!s) {
-searchResults.innerHTML = `
-<div class="resItem">Try: <b>Picasso</b></div>
-<div class="resItem">Try: <b>Michelangelo</b></div>
-<div class="resItem">Try: <b>Impressionism</b></div>
-<div class="resItem">Try: <b>Louvre</b></div>
-`;
-[...searchResults.querySelectorAll(".resItem")].forEach(el => {
-el.addEventListener("click", () => {
-const txt = el.textContent.replace("Try:", "").trim();
-if (searchInput) searchInput.value = txt;
-if (searchInput) searchInput.focus();
 });
-});
-return;
 }
-searchResults.innerHTML = `
-<div class="resItem">Press Enter to build: <b>${s}</b></div>
-<div class="resItem" style="opacity:.7">Target size: <b>${targetForQuery(s)}</b></div>
-`;
-}
+
 
 // ---------------- global start ----------------
 window.karmasynStart = async function () {
