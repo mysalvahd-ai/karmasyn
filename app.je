@@ -22,102 +22,93 @@ const WORKS = [
 "Vermeer — Girl with a Pearl Earring"
 ];
 
-let index = 0;
+let idx = 0;
 let timer = null;
 let running = false;
 let startedAt = null;
 let humanStopped = false;
 
-function time() {
+function mmss() {
 if (!startedAt) return "00:00";
 const s = Math.floor((Date.now() - startedAt) / 1000);
-return `${String(Math.floor(s / 60)).padStart(2,"0")}:${String(s % 60).padStart(2,"0")}`;
+return `${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
 }
 
-function updateMeta(state) {
-meta.textContent = `${time()} · ${state}`;
-}
+function setMeta(state){ meta.textContent = `${mmss()} · ${state}`; }
 
-function showWork(note) {
-titleH1.textContent = WORKS[index % WORKS.length];
+function render(note){
+titleH1.textContent = WORKS[idx % WORKS.length];
 titleP.textContent = note;
 }
 
-function startRitual() {
+function startRitual(){
+if (!startedAt) startedAt = Date.now();
 running = true;
 playBtn.textContent = "⏸";
-updateMeta("running");
-showWork("RITUAL is running. Tap to stop.");
+setMeta("running");
+render("RITUAL is running. Tap ▶ to pause.");
 
+clearInterval(timer);
 timer = setInterval(() => {
-index++;
-showWork("RITUAL is running. Tap to stop.");
-updateMeta("running");
+idx++;
+render("RITUAL is running. Tap ▶ to pause.");
+setMeta("running");
 }, 3000);
 }
 
-function stopRitual(reason = "paused") {
+function stopRitual(reason="paused"){
 running = false;
 playBtn.textContent = "▶";
 clearInterval(timer);
 timer = null;
-updateMeta(reason);
-showWork("RITUAL is paused. Tap to resume.");
+setMeta(reason);
+render("RITUAL is paused. Tap ▶ to resume.");
 }
 
-function toggleRitual() {
-if (!startedAt) startedAt = Date.now();
+function toggleRitual(){
 running ? stopRitual("paused") : startRitual();
 }
 
-function firstHumanGesture() {
-if (!humanStopped && running) {
+// Regola: primo gesto umano ferma il rituale
+function firstHumanGesture(){
+if (!humanStopped && running){
 humanStopped = true;
 stopRitual("stopped by human");
 }
 }
 
-function startFromOverlay(e) {
-e.preventDefault();
+// ⭐ FUNZIONE GLOBALE: chiamata dall'onclick nel HTML
+window.karmasynStart = function(){
 overlay.classList.add("hidden");
-if (!startedAt) startedAt = Date.now();
+humanStopped = false; // reset
 startRitual();
-}
+};
 
-/* EVENTS — iOS SAFE */
-overlay.addEventListener("pointerdown", startFromOverlay, { passive: false });
-overlay.addEventListener("touchstart", startFromOverlay, { passive: false });
-overlay.addEventListener("click", startFromOverlay);
-
-playBtn.addEventListener("pointerdown", e => {
-e.stopPropagation();
+// Controls
+playBtn.addEventListener("click", (e) => {
+e.preventDefault();
 firstHumanGesture();
 toggleRitual();
 });
 
-searchBtn.addEventListener("pointerdown", e => {
-e.stopPropagation();
+searchBtn.addEventListener("click", (e) => {
+e.preventDefault();
 searchPanel.classList.toggle("open");
 if (searchPanel.classList.contains("open")) searchInput.focus();
 });
 
-searchInput.addEventListener("keydown", e => {
+searchInput.addEventListener("keydown", (e) => {
 if (e.key === "Enter") {
-const q = searchInput.value.toLowerCase();
+const q = (searchInput.value || "").trim().toLowerCase();
 const found = WORKS.findIndex(w => w.toLowerCase().includes(q));
-if (found >= 0) index = found;
-showWork(`SEEK: ${searchInput.value}`);
+if (found >= 0) idx = found;
+render(`SEEK: ${searchInput.value}`);
 searchPanel.classList.remove("open");
+setMeta("seek");
 }
 });
 
-document.addEventListener("pointerdown", e => {
-if (overlay.classList.contains("hidden")) {
-firstHumanGesture();
-}
-});
-
-/* INIT */
-showWork("Tap the pill to begin.");
-updateMeta("idle");
+// Init
+render("Tap the pill to begin.");
+setMeta("idle");
 })();
