@@ -1,5 +1,5 @@
 (() => {
-// ---------- DOM SAFE HELPERS ----------
+// ---------------- DOM SAFE HELPERS ----------------
 const $ = (sel) => document.querySelector(sel);
 const setText = (sel, txt) => { const el = $(sel); if (el) el.textContent = txt; };
 
@@ -8,23 +8,36 @@ const stage = $("#stage");
 const playBtn = $("#playBtn");
 const searchBtn = $("#searchBtn");
 const searchPanel = $("#searchPanel");
+const searchForm = $("#searchForm");
 const searchInput = $("#searchInput");
 const searchResults = $("#searchResults");
 
 function hideOverlay() { if (overlay) overlay.classList.add("hidden"); }
 function showOverlaySub(txt) { setText("#homeOverlay .sub", txt); }
 
-// ---------- STATE ----------
+// ---------------- STATE ----------------
 let running = false;
 let humanStopped = false;
 let tickTimer = null;
 let ritualTimer = null;
 let seconds = 0;
 
-let works = []; // list of { manifestUrl, label }
-let currentIndex = 0;
+// tempo-museo
+const RITUAL_MS = 10000; // 10s (puoi mettere 12s)
 
-// ---------- TIMER / META ----------
+// MODE:
+// "RITUAL" = infinite random stream
+// "EXHIBITION" = generated list from search
+let mode = "RITUAL";
+
+// Queue for ritual (random) and exhibition (curated)
+let queue = []; // array of items
+let qIndex = 0;
+
+// prevent repeats (light)
+const seen = new Set();
+
+// ---------------- TIMER / META ----------------
 function fmtTime(s) {
 const mm = String(Math.floor(s / 60)).padStart(2, "0");
 const ss = String(s % 60).padStart(2, "0");
@@ -45,49 +58,10 @@ if (tickTimer) clearInterval(tickTimer);
 tickTimer = null;
 }
 
-// ---------- IIIF CORE ----------
-async function fetchJSON(url) {
-const r = await fetch(url, { cache: "no-store" });
-if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
-return r.json();
-}
-
-function iiifImageFromManifest(manifest) {
-// Presentation 3: manifest.items[0] => canvas
-let canvas = manifest.items?.[0] || null;
-// Presentation 2 fallback
-if (!canvas && manifest.sequences?.[0]?.canvases?.length) {
-canvas = manifest.sequences[0].canvases[0];
-}
-if (!canvas) throw new Error("IIIF: no canvas");
-
-// v3 body/service
-let body = canvas.items?.[0]?.items?.[0]?.body || null;
-let service = body?.service ? (Array.isArray(body.service) ? body.service[0] : body.service) : null;
-
-// v2 fallback
-if (!body && canvas.images?.[0]) {
-body = canvas.images[0].resource || canvas.images[0].body || null;
-service = canvas.images[0].resource?.service || canvas.images[0].service || null;
-if (Array.isArray(service)) service = service[0];
-}
-
-// direct image id
-const direct = body?.id || body?.["@id"];
-if (direct && /\.(jpe?g|png|webp)$/i.test(direct)) return direct;
-
-const sid = service?.id || service?.["@id"];
-if (!sid) throw new Error("IIIF: no image service");
-
-// Safe size that many servers accept
-return `${String(sid).replace(/\/$/, "")}/full/!2200,2200/0/default.jpg`;
-}
-
+// ---------------- IMAGE RENDER ----------------
 function setStageImage(url) {
 if (!stage) return;
 stage.innerHTML = "";
-stage.style.position = "absolute";
-stage.style.inset = "0";
 
 const img = new Image();
 img.decoding = "async";
@@ -103,97 +77,165 @@ img.src = url;
 stage.appendChild(img);
 }
 
-function manifestLabel(manifest) {
-// Presentation 3: label can be {en:[...]} or string
-const l = manifest.label;
-if (!l) return "Untitled";
-if (typeof l === "string") return l;
-if (Array.isArray(l)) return l[0] || "Untitled";
-// language map
-const firstKey = Object.keys(l)[0];
-const arr = l[firstKey];
-return Array.isArray(arr) ? (arr[0] || "Untitled") : "Untitled";
+// ---------------- AIC PROVIDER (HUGE + IIIF) ----------------
+async function fetchJSON(url) {
+const r = await fetch(url, { cache: "no-store" });
+if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
+return r.json();
 }
 
-async function showFromManifest(manifestUrl) {
-const manifest = await fetchJSON(manifestUrl);
-const imgUrl = iiifImageFromManifest(manifest);
-setStageImage(imgUrl);
+// Build IIIF image URL directly (faster than loading manifest)
+function aicIIIFImage(imageId, max = 2200) {
+// AIC IIIF Image API
+return `https://www.artic.edu/iiif/2/${imageId}/full/!${max},${max}/0/default.jpg`;
+}
 
-// headline
-const title = manifestLabel(manifest);
-setText("#hTitle", title);
-// keep sub minimal (source host)
+function normalizeItem(x) {
+// x = {id,title,artist_title,image_id}
+return {
+provider: "aic",
+id: String(x.id),
+title: x.title || "Untitled",
+sub: x.artist_title || "Art Institute of Chicago",
+image: x.image_id ? aicIIIFImage(x.image_id) : null,
+raw: x
+};
+}
+
+// Random page fetch (inevitable art)
+async function aicFetchRandomBatch(batchSize = 12) {
+// This is intentionally "chance":
+// - pick a random page within a range
+// - filter public domain + has image
+const page = 1 + Math.floor(Math.random() * 400); // range is heuristic
+const url =
+`https://api.artic.edu/api/v1/artworks/search?` +
+`query[term][is_public_domain]=true&` +
+`fields=id,title,artist_title,image_id&` +
+`limit=${batchSize}&page=${page}`;
+
+const json = await fetchJSON(url);
+const data = (json && json.data) ? json.data : [];
+return data
+.filter(d => d.image_id)
+.map(normalizeItem)
+.filter(it => it.image && !seen.has(it.provider + ":" + it.id));
+}
+
+// Search fetch (build a "real exhibition")
+async function aicSearchExhibition(query, targetCount) {
+const q = encodeURIComponent(query.trim());
+// search in title/artist etc. (generic)
+// limit 100 per call
+const limit = Math.min(100, Math.max(25, targetCount));
+const url =
+`https://api.artic.edu/api/v1/artworks/search?q=${q}&` +
+`fields=id,title,artist_title,image_id&` +
+`limit=${limit}&` +
+`query[term][is_public_domain]=true`;
+
+const json = await fetchJSON(url);
+const data = (json && json.data) ? json.data : [];
+return data
+.filter(d => d.image_id)
+.map(normalizeItem);
+}
+
+function importanceTarget(query) {
+// Very simple heuristic you can tweak:
+// big names/periods => bigger exhibition
+const q = query.toLowerCase();
+const big = ["picasso","michelangelo","rembrandt","monet","vangogh","van gogh","warhol","caravaggio","renaissance","baroque","impressionism","cubism"];
+if (big.some(k => q.includes(k))) return 120;
+return 60;
+}
+
+// ---------------- AI LIGHT (micro-notes) ----------------
+// For now: lightweight “museum-like” prompts, no API.
+// Later we can swap this with real AI.
+const microNotes = [
+"Stay with the light for a second.",
+"Look at the hands: they carry the story.",
+"Notice the background—it's not empty.",
+"The composition is doing the emotion.",
+"Look for the quiet detail, not the subject."
+];
+
+function maybeShowNote() {
+// 1 note every ~8 works
+if (Math.random() < 0.125) {
+setText("#hSub", microNotes[Math.floor(Math.random() * microNotes.length)]);
+// after 2.5s restore subtitle if we have current
+setTimeout(() => {
+const cur = queue[qIndex] || null;
+if (cur) setText("#hSub", cur.sub || "—");
+}, 2500);
+}
+}
+
+// ---------------- RITUAL ENGINE ----------------
+async function ensureQueue(min = 18) {
+if (mode !== "RITUAL") return;
+if (queue.length >= min) return;
+
 try {
-const host = new URL(manifestUrl).host.replace(/^www\./, "");
-setText("#hSub", host);
-} catch {
-setText("#hSub", "IIIF");
+showOverlaySub("Loading…");
+const batch = await aicFetchRandomBatch(14);
+batch.forEach(it => {
+seen.add(it.provider + ":" + it.id);
+queue.push(it);
+});
+showOverlaySub(`Loaded ${queue.length}`);
+if (queue.length) hideOverlay();
+} catch (e) {
+console.error(e);
+showOverlaySub("Loading failed. Retrying…");
+}
 }
 
-return { manifestUrl, imgUrl };
+function renderCurrent() {
+const cur = queue[qIndex];
+if (!cur || !cur.image) return;
+
+setStageImage(cur.image);
+setText("#hTitle", cur.title);
+setText("#hSub", cur.sub);
+
+maybeShowNote();
 }
 
-// ---------- WORKS LIST ----------
-async function loadWorksList() {
-// Your repo has data/manifest.json
-// Accept 2 formats:
-// 1) ["url1","url2",...]
-// 2) [{manifest:"url", label:"..."}, ...]
-const raw = await fetchJSON("./data/manifest.json");
-
-if (Array.isArray(raw) && typeof raw[0] === "string") {
-works = raw.map((u) => ({ manifestUrl: u, label: null }));
-return;
-}
-
-if (Array.isArray(raw) && typeof raw[0] === "object") {
-works = raw
-.map((o) => ({
-manifestUrl: o.manifest || o.url || o.manifestUrl,
-label: o.label || o.title || null
-}))
-.filter((x) => !!x.manifestUrl);
-return;
-}
-
-throw new Error("manifest.json format not recognized");
-}
-
-function pickRandomIndex() {
-if (!works.length) return 0;
-if (works.length === 1) return 0;
-let i = Math.floor(Math.random() * works.length);
-if (i === currentIndex) i = (i + 1) % works.length;
-return i;
-}
-
-// ---------- RITUAL ----------
 async function ritualStep() {
 if (!running || humanStopped) return;
 
-currentIndex = pickRandomIndex();
-const item = works[currentIndex];
+if (mode === "RITUAL") {
+await ensureQueue(18);
 
-try {
-await showFromManifest(item.manifestUrl);
-} catch (e) {
-console.error(e);
-// keep running but show subtle info
-setText("#hTitle", "—");
-setText("#hSub", "IIIF load error (next)");
+// advance
+qIndex = (qIndex + 1) % Math.max(queue.length, 1);
+renderCurrent();
+
+// keep queue growing (infinite feeling)
+if (queue.length < 18) ensureQueue(18);
+return;
+}
+
+// EXHIBITION mode: loop inside exhibition list
+if (mode === "EXHIBITION") {
+if (!queue.length) return;
+qIndex = (qIndex + 1) % queue.length;
+renderCurrent();
+return;
 }
 }
 
 function startRitual() {
 running = true;
-setText("#meta", `${fmtTime(seconds)} · running`);
 if (playBtn) playBtn.textContent = "⏸";
+setText("#meta", `${fmtTime(seconds)} · running`);
 
-// step now, then every 3s
 ritualStep();
 clearInterval(ritualTimer);
-ritualTimer = setInterval(ritualStep, 3000);
+ritualTimer = setInterval(ritualStep, RITUAL_MS);
 }
 
 function stopRitual(reason = "") {
@@ -209,7 +251,7 @@ if (running) stopRitual("");
 else startRitual();
 }
 
-// First human gesture stops the ritual (your rule)
+// First human gesture stops the ritual (rule)
 function firstHumanGesture() {
 if (!humanStopped && running) {
 humanStopped = true;
@@ -217,63 +259,87 @@ stopRitual("stopped by human");
 }
 }
 
-// ---------- SEARCH ----------
+// ---------------- SEARCH = GENERATE EXHIBITION ----------------
 function openSearch() {
 if (!searchPanel) return;
 searchPanel.classList.toggle("open");
 if (searchPanel.classList.contains("open") && searchInput) {
 searchInput.focus();
-renderSearch("");
+renderSearchResults([]);
 }
 }
 
-function renderSearch(q) {
+function renderSearchResults(list) {
 if (!searchResults) return;
-const query = (q || "").trim().toLowerCase();
-const list = works
-.map((w, idx) => ({ idx, manifestUrl: w.manifestUrl }))
-.filter((x) => !query || x.manifestUrl.toLowerCase().includes(query))
-.slice(0, 30);
-
-searchResults.innerHTML = list.map((x) => `
-<div class="resItem" data-idx="${x.idx}">
-${x.manifestUrl}
+searchResults.innerHTML = list.map((x, idx) => `
+<div class="resItem" data-idx="${idx}">
+${x.title} <span style="opacity:.6">— ${x.sub}</span>
 </div>
 `).join("");
 
-// click jump
 [...searchResults.querySelectorAll(".resItem")].forEach((el) => {
-el.addEventListener("click", async () => {
+el.addEventListener("click", () => {
 firstHumanGesture();
 const idx = Number(el.getAttribute("data-idx"));
-currentIndex = idx;
-searchPanel.classList.remove("open");
-await showFromManifest(works[idx].manifestUrl);
+qIndex = idx;
+renderCurrent();
+if (searchPanel) searchPanel.classList.remove("open");
 });
 });
 }
 
-// ---------- GLOBAL START ----------
+async function buildExhibitionFromQuery(query) {
+const target = importanceTarget(query);
+showOverlaySub(`Building exhibition…`);
+// For now: single call (up to 100). Later we can paginate for 200+
+const items = await aicSearchExhibition(query, target);
+
+// If too few results, fall back to ritual stream but keep query as “lens”
+if (items.length < 10) {
+mode = "RITUAL";
+showOverlaySub("Not enough works. Back to ritual…");
+return;
+}
+
+// Switch mode
+mode = "EXHIBITION";
+humanStopped = false; // allow ritual in this mode
+queue = items;
+qIndex = 0;
+
+// Intro minimal
+setText("#hTitle", query);
+setText("#hSub", `Exhibition · ${items.length} works`);
+
+hideOverlay();
+// start (or continue) with museum tempo
+if (!running) startRitual();
+else {
+renderCurrent();
+}
+
+// Also show first work immediately
+renderCurrent();
+}
+
+// ---------------- GLOBAL START ----------------
 window.karmasynStart = async function () {
 showOverlaySub("Loading…");
-
-try {
-await loadWorksList(); // reads ./data/manifest.json
-showOverlaySub(`Loaded ${works.length} manifests`);
 startClock();
+
+// Default: Infinite “inevitable” ritual
+mode = "RITUAL";
+queue = [];
+qIndex = 0;
+
+await ensureQueue(18);
 hideOverlay();
 
-humanStopped = false; // reset rule
+humanStopped = false;
 startRitual();
-} catch (e) {
-console.error(e);
-showOverlaySub("Couldn’t load. Retrying…");
-// retry
-setTimeout(() => window.karmasynStart(), 1500);
-}
 };
 
-// ---------- CONTROLS ----------
+// ---------------- CONTROLS ----------------
 if (playBtn) {
 playBtn.addEventListener("click", (e) => {
 e.preventDefault();
@@ -290,27 +356,26 @@ openSearch();
 });
 }
 
-if (searchInput) {
-searchInput.addEventListener("input", () => renderSearch(searchInput.value));
-searchInput.addEventListener("keydown", (e) => {
-if (e.key === "Enter") {
+// iOS-safe submit
+if (searchForm) {
+searchForm.addEventListener("submit", async (e) => {
+e.preventDefault();
 firstHumanGesture();
-// jump to first
-const first = searchResults?.querySelector(".resItem");
-if (first) first.click();
-}
+const q = (searchInput?.value || "").trim();
+if (!q) return;
+await buildExhibitionFromQuery(q);
+if (searchPanel) searchPanel.classList.remove("open");
 });
 }
 
-// Any touch/click on stage counts as "first human gesture"
-document.addEventListener("pointerdown", () => {
-// don't stop if user is clicking inside search panel inputs
-const active = document.activeElement;
-if (active && (active.tagName === "INPUT" || active.closest("#searchPanel"))) return;
+// Avoid stopping ritual while typing
+document.addEventListener("pointerdown", (e) => {
+const t = e.target;
+if (t && (t.tagName === "INPUT" || t.closest("#searchPanel"))) return;
 firstHumanGesture();
 }, { passive: true });
 
-// ---------- AUTOSTART ----------
+// ---------------- AUTOSTART ----------------
 window.addEventListener("DOMContentLoaded", () => {
 if (typeof window.karmasynStart === "function") window.karmasynStart();
 });
