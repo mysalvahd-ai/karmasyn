@@ -1,10 +1,12 @@
 (() => {
-// ---------------- DOM SAFE HELPERS ----------------
+// ---------------- DOM helpers ----------------
 const $ = (sel) => document.querySelector(sel);
 const setText = (sel, txt) => { const el = $(sel); if (el) el.textContent = txt; };
 
 const overlay = $("#homeOverlay");
 const stage = $("#stage");
+const hudEls = [$("#hud"), $("#controls"), $("#gestureHint")].filter(Boolean);
+
 const playBtn = $("#playBtn");
 const searchBtn = $("#searchBtn");
 const searchPanel = $("#searchPanel");
@@ -15,35 +17,59 @@ const searchResults = $("#searchResults");
 function hideOverlay() { if (overlay) overlay.classList.add("hidden"); }
 function showOverlaySub(txt) { setText("#homeOverlay .sub", txt); }
 
-// ---------------- STATE ----------------
+function toggleHUD() {
+hudEls.forEach(el => el.classList.toggle("hidden"));
+}
+function showHUD() { hudEls.forEach(el => el.classList.remove("hidden")); }
+function hideHUD() { hudEls.forEach(el => el.classList.add("hidden")); }
+
+// ---------------- state ----------------
+const RITUAL_MS = 7000; // tempo base (6–10; tu hai scelto 7)
+const MANUAL_HOLD_MS = 10000; // modalità B: manuale per 10s dopo swipe
+const FETCH_TIMEOUT_MS = 8000; // guardrail iOS
+const BIG_TARGET = 300;
+const NORMAL_TARGET = 120;
+
 let running = false;
-let humanStopped = false;
-let tickTimer = null;
 let ritualTimer = null;
+let tickTimer = null;
 let seconds = 0;
 
-// tempo-museo
-const RITUAL_MS = 10000; // 10s (puoi mettere 12s)
+// Exhibition engine
+// An exhibition is: { title, subtitle, items: [Item], sourceTag }
+// Item: { provider, id, title, sub, image }
+let currentEx = null;
+let queue = [];
+let idx = 0;
 
-// MODE:
-// "RITUAL" = infinite random stream
-// "EXHIBITION" = generated list from search
-let mode = "RITUAL";
+// History for prev/next
+let history = []; // Items visited in order
+let hIndex = -1; // pointer in history
 
-// Queue for ritual (random) and exhibition (curated)
-let queue = []; // array of items
-let qIndex = 0;
+// Manual mode after swipe
+let manualUntil = 0;
 
-// prevent repeats (light)
-const seen = new Set();
+// Rotation when idle: rotate coherent exhibitions (not random works)
+const lenses = [
+"Impressionism",
+"Renaissance",
+"Baroque",
+"Cubism",
+"Japanese print",
+"Portrait",
+"Landscape",
+"Still life",
+"Sculpture",
+"Fresco",
+"Mythology"
+];
 
-// ---------------- TIMER / META ----------------
+// ---------------- time/meta ----------------
 function fmtTime(s) {
 const mm = String(Math.floor(s / 60)).padStart(2, "0");
 const ss = String(s % 60).padStart(2, "0");
 return `${mm}:${ss}`;
 }
-
 function startClock() {
 stopClock();
 seconds = 0;
@@ -52,17 +78,15 @@ seconds++;
 setText("#meta", `${fmtTime(seconds)} · ${running ? "running" : "paused"}`);
 }, 1000);
 }
-
 function stopClock() {
 if (tickTimer) clearInterval(tickTimer);
 tickTimer = null;
 }
 
-// ---------------- IMAGE RENDER ----------------
+// ---------------- image render ----------------
 function setStageImage(url) {
 if (!stage) return;
 stage.innerHTML = "";
-
 const img = new Image();
 img.decoding = "async";
 img.loading = "eager";
@@ -73,169 +97,303 @@ img.style.width = "100%";
 img.style.height = "100%";
 img.style.objectFit = "contain";
 img.src = url;
-
 stage.appendChild(img);
 }
 
-// ---------------- AIC PROVIDER (HUGE + IIIF) ----------------
-async function fetchJSON(url) {
-const r = await fetch(url, { cache: "no-store" });
+// ---------------- network with timeout ----------------
+async function fetchJSON(url, timeoutMs = FETCH_TIMEOUT_MS) {
+const controller = new AbortController();
+const t = setTimeout(() => controller.abort(), timeoutMs);
+try {
+const r = await fetch(url, { cache: "no-store", signal: controller.signal });
 if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
-return r.json();
+return await r.json();
+} finally {
+clearTimeout(t);
+}
 }
 
-// Build IIIF image URL directly (faster than loading manifest)
-function aicIIIFImage(imageId, max = 2200) {
-// AIC IIIF Image API
+// ---------------- provider: AIC ----------------
+function aicImg(imageId, max = 2400) {
 return `https://www.artic.edu/iiif/2/${imageId}/full/!${max},${max}/0/default.jpg`;
 }
-
-function normalizeItem(x) {
-// x = {id,title,artist_title,image_id}
+function normAIC(x) {
 return {
 provider: "aic",
 id: String(x.id),
 title: x.title || "Untitled",
 sub: x.artist_title || "Art Institute of Chicago",
-image: x.image_id ? aicIIIFImage(x.image_id) : null,
-raw: x
+image: x.image_id ? aicImg(x.image_id) : null
 };
 }
 
-// Random page fetch (inevitable art)
-async function aicFetchRandomBatch(batchSize = 12) {
-// This is intentionally "chance":
-// - pick a random page within a range
-// - filter public domain + has image
-const page = 1 + Math.floor(Math.random() * 400); // range is heuristic
+async function aicSearchPaged(query, targetCount) {
+const q = encodeURIComponent(query.trim());
+const perPage = 100;
+const maxPages = Math.ceil(targetCount / perPage) + 2;
+const out = [];
+const ids = new Set();
+
+for (let page = 1; page <= maxPages; page++) {
+const url =
+`https://api.artic.edu/api/v1/artworks/search?q=${q}` +
+`&fields=id,title,artist_title,image_id&limit=${perPage}&page=${page}` +
+`&query[term][is_public_domain]=true`;
+
+let json;
+try { json = await fetchJSON(url); }
+catch (e) { console.warn("AIC page failed", page, e); continue; }
+
+const data = json?.data || [];
+if (!data.length) break;
+
+for (const d of data) {
+if (!d.image_id) continue;
+const it = normAIC(d);
+if (!it.image) continue;
+if (ids.has(it.id)) continue;
+ids.add(it.id);
+out.push(it);
+if (out.length >= targetCount) return out;
+}
+}
+return out;
+}
+
+async function aicRandomBatch(batchSize = 30) {
+const page = 1 + Math.floor(Math.random() * 500);
 const url =
 `https://api.artic.edu/api/v1/artworks/search?` +
-`query[term][is_public_domain]=true&` +
-`fields=id,title,artist_title,image_id&` +
+`query[term][is_public_domain]=true&fields=id,title,artist_title,image_id&` +
 `limit=${batchSize}&page=${page}`;
-
 const json = await fetchJSON(url);
-const data = (json && json.data) ? json.data : [];
-return data
-.filter(d => d.image_id)
-.map(normalizeItem)
-.filter(it => it.image && !seen.has(it.provider + ":" + it.id));
+const data = json?.data || [];
+return data.filter(d => d.image_id).map(normAIC).filter(it => it.image);
 }
 
-// Search fetch (build a "real exhibition")
-async function aicSearchExhibition(query, targetCount) {
-const q = encodeURIComponent(query.trim());
-// search in title/artist etc. (generic)
-// limit 100 per call
-const limit = Math.min(100, Math.max(25, targetCount));
+// ---------------- provider: Wikidata/Commons (artist heavy) ----------------
+async function wdEntityQID(query) {
 const url =
-`https://api.artic.edu/api/v1/artworks/search?q=${q}&` +
-`fields=id,title,artist_title,image_id&` +
-`limit=${limit}&` +
-`query[term][is_public_domain]=true`;
-
+`https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(query)}` +
+`&language=en&format=json&origin=*`;
 const json = await fetchJSON(url);
-const data = (json && json.data) ? json.data : [];
-return data
-.filter(d => d.image_id)
-.map(normalizeItem);
+return json?.search?.[0]?.id || null; // e.g. Q5592
 }
 
-function importanceTarget(query) {
-// Very simple heuristic you can tweak:
-// big names/periods => bigger exhibition
-const q = query.toLowerCase();
-const big = ["picasso","michelangelo","rembrandt","monet","vangogh","van gogh","warhol","caravaggio","renaissance","baroque","impressionism","cubism"];
-if (big.some(k => q.includes(k))) return 120;
-return 60;
-}
-
-// ---------------- AI LIGHT (micro-notes) ----------------
-// For now: lightweight “museum-like” prompts, no API.
-// Later we can swap this with real AI.
-const microNotes = [
-"Stay with the light for a second.",
-"Look at the hands: they carry the story.",
-"Notice the background—it's not empty.",
-"The composition is doing the emotion.",
-"Look for the quiet detail, not the subject."
-];
-
-function maybeShowNote() {
-// 1 note every ~8 works
-if (Math.random() < 0.125) {
-setText("#hSub", microNotes[Math.floor(Math.random() * microNotes.length)]);
-// after 2.5s restore subtitle if we have current
-setTimeout(() => {
-const cur = queue[qIndex] || null;
-if (cur) setText("#hSub", cur.sub || "—");
-}, 2500);
-}
-}
-
-// ---------------- RITUAL ENGINE ----------------
-async function ensureQueue(min = 18) {
-if (mode !== "RITUAL") return;
-if (queue.length >= min) return;
-
+function commonsFileNameFromURL(url) {
 try {
-showOverlaySub("Loading…");
-const batch = await aicFetchRandomBatch(14);
-batch.forEach(it => {
-seen.add(it.provider + ":" + it.id);
-queue.push(it);
-});
-showOverlaySub(`Loaded ${queue.length}`);
-if (queue.length) hideOverlay();
-} catch (e) {
-console.error(e);
-showOverlaySub("Loading failed. Retrying…");
+const u = new URL(url);
+const last = u.pathname.split("/").pop();
+return decodeURIComponent(last || "");
+} catch { return ""; }
+}
+
+function commonsIIIF(fileName, max = 2400) {
+const name = fileName.startsWith("File:") ? fileName : `File:${fileName}`;
+return `https://iiif.wmcloud.org/iiif/commons/${encodeURIComponent(name)}/full/!${max},${max}/0/default.jpg`;
+}
+
+function normWD(row) {
+const label = row?.itemLabel?.value || "Untitled";
+const img = row?.image?.value || "";
+const fileName = commonsFileNameFromURL(img);
+const iiif = fileName ? commonsIIIF(fileName) : null;
+const qid = row?.item?.value?.split("/").pop() || label;
+
+return {
+provider: "wikidata",
+id: String(qid),
+title: label,
+sub: "Wikidata / Commons",
+image: iiif
+};
+}
+
+async function wdArtistWorks(query, targetCount) {
+const qid = await wdEntityQID(query);
+if (!qid) return [];
+
+const pageSize = 50;
+const maxPages = Math.ceil(targetCount / pageSize) + 1;
+
+const out = [];
+const ids = new Set();
+
+for (let p = 0; p < maxPages; p++) {
+const offset = p * pageSize;
+const sparql = `
+SELECT ?item ?itemLabel ?image WHERE {
+?item wdt:P170 wd:${qid} .
+?item wdt:P18 ?image .
+SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+}
+LIMIT ${pageSize}
+OFFSET ${offset}
+`.trim();
+
+const url = `https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(sparql)}`;
+
+let json;
+try { json = await fetchJSON(url, 10000); }
+catch (e) { console.warn("Wikidata page failed", p, e); continue; }
+
+const rows = json?.results?.bindings || [];
+if (!rows.length) break;
+
+for (const r of rows) {
+const it = normWD(r);
+if (!it.image) continue;
+if (ids.has(it.id)) continue;
+ids.add(it.id);
+out.push(it);
+if (out.length >= targetCount) return out;
+}
+}
+return out;
+}
+
+// ---------------- AI light 50% (museum-like, not encyclopedia) ----------------
+// No external AI: we generate light prompts. 50% chance.
+const noteBank = [
+"Stay with the light for a moment.",
+"Notice the hands — they carry the tension.",
+"Look at the background: it’s not empty.",
+"Follow the lines before the subject.",
+"Watch where the silence is placed.",
+"The composition is doing the emotion.",
+"Look for the smallest detail that changes everything."
+];
+function maybeNote() {
+if (Math.random() < 0.5) {
+const n = noteBank[Math.floor(Math.random() * noteBank.length)];
+setText("#hSub", n);
+setTimeout(() => {
+const cur = history[hIndex] || queue[idx] || null;
+if (cur) setText("#hSub", cur.sub || "—");
+}, 2600);
 }
 }
 
-function renderCurrent() {
-const cur = queue[qIndex];
-if (!cur || !cur.image) return;
-
-setStageImage(cur.image);
-setText("#hTitle", cur.title);
-setText("#hSub", cur.sub);
-
-maybeShowNote();
+// ---------------- exhibition builder ----------------
+function targetForQuery(q) {
+const s = q.toLowerCase();
+const big = ["picasso","michelangelo","caravaggio","rembrandt","monet","vangogh","van gogh","warhol"];
+if (big.some(k => s.includes(k))) return BIG_TARGET;
+return NORMAL_TARGET;
 }
 
-async function ritualStep() {
-if (!running || humanStopped) return;
+function resetPlayback(items, title, subtitle, sourceTag) {
+currentEx = { title, subtitle, sourceTag };
+queue = items.filter(it => it && it.image);
+idx = 0;
 
-if (mode === "RITUAL") {
-await ensureQueue(18);
+history = [];
+hIndex = -1;
 
-// advance
-qIndex = (qIndex + 1) % Math.max(queue.length, 1);
-renderCurrent();
+setText("#hTitle", title || "—");
+setText("#hSub", subtitle || "—");
+}
 
-// keep queue growing (infinite feeling)
-if (queue.length < 18) ensureQueue(18);
+async function buildExhibition(query) {
+const q = query.trim();
+const target = targetForQuery(q);
+
+showOverlaySub("Building exhibition…");
+
+// AIC always
+const aicItems = await aicSearchPaged(q, Math.min(target, 300));
+
+// Add Wikidata for “serious” artists or if AIC is thin
+const needWD = q.toLowerCase().includes("michelangelo") || aicItems.length < 60;
+let wdItems = [];
+if (needWD) {
+wdItems = await wdArtistWorks(q, Math.max(120, target - aicItems.length));
+}
+
+// Merge + trim
+const merged = [];
+const mset = new Set();
+for (const it of [...aicItems, ...wdItems]) {
+const key = it.provider + ":" + it.id;
+if (mset.has(key)) continue;
+mset.add(key);
+merged.push(it);
+if (merged.length >= target) break;
+}
+
+if (merged.length < 15) {
+// Fallback: coherent lens exhibition from AIC random
+const fallback = await aicRandomBatch(60);
+resetPlayback(fallback, q, "Not enough matches · showing chance works", "fallback");
+hideOverlay();
 return;
 }
 
-// EXHIBITION mode: loop inside exhibition list
-if (mode === "EXHIBITION") {
-if (!queue.length) return;
-qIndex = (qIndex + 1) % queue.length;
-renderCurrent();
+const src = needWD ? "AIC + Commons" : "AIC";
+resetPlayback(merged, q, `Exhibition · ${merged.length} works · ${src}`, "search");
+hideOverlay();
+}
+
+async function buildNextIdleExhibition() {
+// Coherent “chance”: pick a lens, build a proper exhibition (not random works)
+const lens = lenses[Math.floor(Math.random() * lenses.length)];
+await buildExhibition(lens);
+}
+
+// ---------------- player (next/prev + history) ----------------
+function showItem(item) {
+if (!item || !item.image) return;
+setStageImage(item.image);
+setText("#hTitle", item.title || "Untitled");
+setText("#hSub", item.sub || (currentEx?.subtitle || "—"));
+maybeNote();
+}
+
+function nextItem() {
+// If we are in history and can go forward, use it
+if (hIndex + 1 < history.length) {
+hIndex++;
+showItem(history[hIndex]);
 return;
+}
+
+// Else take from queue
+const item = queue[idx];
+if (!item) return;
+
+history.push(item);
+hIndex = history.length - 1;
+showItem(item);
+
+idx++;
+if (idx >= queue.length) {
+// End of this exhibition: rotate to a new coherent exhibition automatically
+// (keeps “infinite exhibitions”)
+idx = queue.length; // lock
+scheduleRotateExhibition();
 }
 }
 
+function prevItem() {
+if (hIndex > 0) {
+hIndex--;
+showItem(history[hIndex]);
+}
+}
+
+// ---------------- ritual loop ----------------
 function startRitual() {
 running = true;
 if (playBtn) playBtn.textContent = "⏸";
 setText("#meta", `${fmtTime(seconds)} · running`);
 
-ritualStep();
+nextItem();
 clearInterval(ritualTimer);
-ritualTimer = setInterval(ritualStep, RITUAL_MS);
+ritualTimer = setInterval(() => {
+// If user swiped recently (manual mode), do not auto-advance
+if (Date.now() < manualUntil) return;
+nextItem();
+}, RITUAL_MS);
 }
 
 function stopRitual(reason = "") {
@@ -246,136 +404,185 @@ if (ritualTimer) clearInterval(ritualTimer);
 ritualTimer = null;
 }
 
-function toggleRitual() {
+function togglePlay() {
 if (running) stopRitual("");
 else startRitual();
 }
 
-// First human gesture stops the ritual (rule)
-function firstHumanGesture() {
-if (!humanStopped && running) {
-humanStopped = true;
-stopRitual("stopped by human");
+let rotateTimer = null;
+async function scheduleRotateExhibition() {
+if (rotateTimer) clearTimeout(rotateTimer);
+
+// After an exhibition ends, load another one after a short breath
+rotateTimer = setTimeout(async () => {
+try {
+showOverlaySub("Loading next exhibition…");
+if (overlay) overlay.classList.remove("hidden"); // show overlay briefly
+await buildNextIdleExhibition();
+// Make sure we continue running
+if (!running) startRitual();
+} catch (e) {
+console.error(e);
+showOverlaySub("Retrying…");
+scheduleRotateExhibition();
+}
+}, 900);
+}
+
+// ---------------- gestures (mobile-friendly) ----------------
+// Tap single: toggle HUD (no stop)
+// Double tap: play/pause
+// Swipe left/right: next/prev + manual mode 10s (B)
+
+let lastTapTs = 0;
+
+function onStageTap() {
+const now = Date.now();
+if (now - lastTapTs < 260) {
+// double tap
+lastTapTs = 0;
+togglePlay();
+return;
+}
+lastTapTs = now;
+// single tap: toggle UI
+toggleHUD();
+}
+
+// Swipe detection (simple)
+let touchX = null;
+let touchY = null;
+
+function startManualHold() {
+manualUntil = Date.now() + MANUAL_HOLD_MS;
+// Keep playing, but pause auto-advance for the hold window
+// (the interval checks manualUntil)
+}
+
+function onTouchStart(e) {
+const t = e.touches?.[0];
+if (!t) return;
+touchX = t.clientX;
+touchY = t.clientY;
+}
+
+function onTouchEnd(e) {
+const t = e.changedTouches?.[0];
+if (!t || touchX === null || touchY === null) return;
+
+const dx = t.clientX - touchX;
+const dy = t.clientY - touchY;
+
+touchX = null; touchY = null;
+
+// horizontal swipe threshold
+if (Math.abs(dx) > 55 && Math.abs(dy) < 60) {
+showHUD(); // when user navigates, show info
+startManualHold();
+if (dx < 0) nextItem(); // swipe left = next
+else prevItem(); // swipe right = prev
 }
 }
 
-// ---------------- SEARCH = GENERATE EXHIBITION ----------------
+// ---------------- search ----------------
 function openSearch() {
 if (!searchPanel) return;
 searchPanel.classList.toggle("open");
-if (searchPanel.classList.contains("open") && searchInput) {
-searchInput.focus();
-renderSearchResults([]);
+if (searchPanel.classList.contains("open")) {
+if (searchInput) searchInput.focus();
+// Opening search is an intentional interaction: keep playing but no need to pause automatically.
+// (User can pause with double tap if they want.)
 }
 }
 
-function renderSearchResults(list) {
+function renderSearchHints(q) {
 if (!searchResults) return;
-searchResults.innerHTML = list.map((x, idx) => `
-<div class="resItem" data-idx="${idx}">
-${x.title} <span style="opacity:.6">— ${x.sub}</span>
-</div>
-`).join("");
-
-[...searchResults.querySelectorAll(".resItem")].forEach((el) => {
+const s = (q || "").trim();
+if (!s) {
+searchResults.innerHTML = `
+<div class="resItem">Try: <b>Picasso</b></div>
+<div class="resItem">Try: <b>Michelangelo</b></div>
+<div class="resItem">Try: <b>Impressionism</b></div>
+<div class="resItem">Try: <b>Louvre</b></div>
+`;
+[...searchResults.querySelectorAll(".resItem")].forEach(el => {
 el.addEventListener("click", () => {
-firstHumanGesture();
-const idx = Number(el.getAttribute("data-idx"));
-qIndex = idx;
-renderCurrent();
-if (searchPanel) searchPanel.classList.remove("open");
+const txt = el.textContent.replace("Try:", "").trim();
+if (searchInput) searchInput.value = txt;
+if (searchInput) searchInput.focus();
 });
 });
-}
-
-async function buildExhibitionFromQuery(query) {
-const target = importanceTarget(query);
-showOverlaySub(`Building exhibition…`);
-// For now: single call (up to 100). Later we can paginate for 200+
-const items = await aicSearchExhibition(query, target);
-
-// If too few results, fall back to ritual stream but keep query as “lens”
-if (items.length < 10) {
-mode = "RITUAL";
-showOverlaySub("Not enough works. Back to ritual…");
 return;
 }
-
-// Switch mode
-mode = "EXHIBITION";
-humanStopped = false; // allow ritual in this mode
-queue = items;
-qIndex = 0;
-
-// Intro minimal
-setText("#hTitle", query);
-setText("#hSub", `Exhibition · ${items.length} works`);
-
-hideOverlay();
-// start (or continue) with museum tempo
-if (!running) startRitual();
-else {
-renderCurrent();
+searchResults.innerHTML = `
+<div class="resItem">Press Enter to build: <b>${s}</b></div>
+<div class="resItem" style="opacity:.7">Target size: <b>${targetForQuery(s)}</b></div>
+`;
 }
 
-// Also show first work immediately
-renderCurrent();
-}
-
-// ---------------- GLOBAL START ----------------
+// ---------------- global start ----------------
 window.karmasynStart = async function () {
 showOverlaySub("Loading…");
 startClock();
 
-// Default: Infinite “inevitable” ritual
-mode = "RITUAL";
-queue = [];
-qIndex = 0;
+try {
+// Start with a coherent exhibition (not random works)
+await buildNextIdleExhibition();
 
-await ensureQueue(18);
+// Start playing
 hideOverlay();
-
-humanStopped = false;
 startRitual();
+} catch (e) {
+console.error(e);
+showOverlaySub("Couldn’t load. Retrying…");
+setTimeout(() => window.karmasynStart(), 1200);
+}
 };
 
-// ---------------- CONTROLS ----------------
-if (playBtn) {
-playBtn.addEventListener("click", (e) => {
-e.preventDefault();
-firstHumanGesture();
-toggleRitual();
+// ---------------- wire events ----------------
+// Stage gestures
+if (stage) {
+stage.addEventListener("click", (e) => {
+// ignore clicks when search is open and click inside search panel
+if (searchPanel?.classList.contains("open") && e.target?.closest("#searchPanel")) return;
+onStageTap();
 });
+stage.addEventListener("touchstart", onTouchStart, { passive: true });
+stage.addEventListener("touchend", onTouchEnd, { passive: true });
 }
 
-if (searchBtn) {
-searchBtn.addEventListener("click", (e) => {
-e.preventDefault();
-firstHumanGesture();
-openSearch();
-});
-}
+// Buttons
+if (playBtn) playBtn.addEventListener("click", (e) => { e.preventDefault(); togglePlay(); });
+if (searchBtn) searchBtn.addEventListener("click", (e) => { e.preventDefault(); openSearch(); });
 
-// iOS-safe submit
+// Search input (hints) + submit
+if (searchInput) {
+searchInput.addEventListener("input", () => renderSearchHints(searchInput.value));
+}
 if (searchForm) {
 searchForm.addEventListener("submit", async (e) => {
 e.preventDefault();
-firstHumanGesture();
 const q = (searchInput?.value || "").trim();
 if (!q) return;
-await buildExhibitionFromQuery(q);
+
+// Build exhibition from query
+if (overlay) overlay.classList.remove("hidden");
+showOverlaySub("Building exhibition…");
+try {
+await buildExhibition(q);
 if (searchPanel) searchPanel.classList.remove("open");
+// continue playing, reset manual hold
+manualUntil = 0;
+if (!running) startRitual();
+} catch (err) {
+console.error(err);
+showOverlaySub("Search failed. Try again.");
+setTimeout(() => hideOverlay(), 900);
+}
 });
 }
 
-// Avoid stopping ritual while typing
-document.addEventListener("pointerdown", (e) => {
-const t = e.target;
-if (t && (t.tagName === "INPUT" || t.closest("#searchPanel"))) return;
-firstHumanGesture();
-}, { passive: true });
-
-// ---------------- AUTOSTART ----------------
+// Autostart
 window.addEventListener("DOMContentLoaded", () => {
 if (typeof window.karmasynStart === "function") window.karmasynStart();
 });
