@@ -5,15 +5,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Karmasyn</title>
 
-<!-- stop favicon 404 (optional but nice) -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='black'/><text x='50' y='72' text-anchor='middle' font-size='72' fill='white'>∞</text></svg>">
-
-<link rel="stylesheet" href="styles.css?v=1">
+<link rel="stylesheet" href="styles.css?v=20260206-1300">
 </head>
 <body>
 <div id="app">
 
-<!-- START OVERLAY (no button) -->
+<!-- Overlay (no button) -->
 <div id="homeOverlay">
 <div class="pill" aria-label="Karmasyn status">
 <div class="title">An infinite exhibition.</div>
@@ -21,25 +19,25 @@
 </div>
 </div>
 
-<!-- STAGE (image goes here) -->
+<!-- Stage -->
 <div id="stage"></div>
 
 <!-- HUD -->
-<div id="hud">
-<div id="meta">00:00 · idle</div>
+<div id="hud" class="hud">
+<div id="meta">00:00 · loading</div>
 <div id="headline">
 <div id="hTitle">—</div>
 <div id="hSub">—</div>
 </div>
 </div>
 
-<!-- CONTROLS -->
-<div id="controls">
+<!-- Controls -->
+<div id="controls" class="hud">
 <button id="searchBtn" aria-label="Search">🔎</button>
 <button id="playBtn" aria-label="Play/Pause">⏸</button>
 </div>
 
-<!-- SEARCH PANEL -->
+<!-- Search Panel -->
 <div id="searchPanel">
 <form id="searchForm" autocomplete="off">
 <input
@@ -47,14 +45,20 @@ id="searchInput"
 type="search"
 inputmode="search"
 enterkeyhint="search"
-placeholder="Search (artist / title)"
+placeholder="Search (artist / period / museum)"
 />
-<small id="searchHint">Press Enter to jump</small>
+<small id="searchHint">Press Enter to build an exhibition</small>
 </form>
-
 <div id="searchResults"></div>
 </div>
 
-<script src="app.js?v=20260206-1200"></script>
+<!-- Tiny hint (mobile gestures) -->
+<div id="gestureHint" class="hud">
+Swipe ←/→ to navigate · Tap to hide UI · Double-tap to pause
+</div>
+
+</div>
+
+<script src="app.js?v=20260206-1300"></script>
 </body>
 </html>
