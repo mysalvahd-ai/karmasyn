@@ -6,157 +6,85 @@
 <title>Karmasyn</title>
 
 <style>
-html, body {
-margin: 0;
-padding: 0;
-height: 100%;
-background: #000;
-color: #fff;
-font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
--webkit-tap-highlight-color: transparent;
-}
+html, body { margin:0; height:100%; background:#000; color:#fff; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; -webkit-tap-highlight-color:transparent; }
+#app { position:fixed; inset:0; overflow:hidden; }
 
-#app {
-position: fixed;
-inset: 0;
-overflow: hidden;
+/* Overlay start (BUTTON!) */
+#homeOverlay{
+position:fixed; inset:0;
+display:grid; place-items:center;
+background: radial-gradient(circle at center, rgba(255,255,255,.08), rgba(0,0,0,.95));
+z-index:9999;
 }
+#homeOverlay.hidden{ display:none; }
 
-/* OVERLAY */
-#homeOverlay {
-position: fixed;
-inset: 0;
-display: grid;
-place-items: center;
-background: radial-gradient(circle at center, rgba(255,255,255,0.08), rgba(0,0,0,0.95));
-z-index: 9999;
-cursor: pointer;
+#startBtn{
+appearance:none; -webkit-appearance:none;
+border:1px solid rgba(255,255,255,.35);
+background: rgba(0,0,0,.45);
+color:#fff;
+border-radius:999px;
+padding:12px 18px;
+font-size:15px;
+cursor:pointer;
 touch-action: manipulation;
 }
 
-#homeOverlay.hidden {
-display: none;
+#stage{ position:absolute; inset:0; display:grid; place-items:center; pointer-events:none; }
+#title{ text-align:center; max-width:85vw; }
+#title h1{ margin:0; font-size:20px; font-weight:500; opacity:.95; }
+#title p{ margin:10px 0 0; font-size:12px; opacity:.6; }
+
+#meta{ position:absolute; top:12px; left:12px; font-size:12px; opacity:.6; z-index:5; }
+
+#controls{ position:absolute; top:12px; right:12px; display:flex; gap:10px; z-index:20; }
+.btn{
+width:42px; height:42px; border-radius:999px;
+border:1px solid rgba(255,255,255,.28);
+background: rgba(0,0,0,.55);
+color:#fff; display:grid; place-items:center;
+font-size:16px; cursor:pointer; touch-action: manipulation;
 }
 
-.pill {
-padding: 12px 18px;
-border-radius: 999px;
-border: 1px solid rgba(255,255,255,0.35);
-background: rgba(0,0,0,0.4);
-backdrop-filter: blur(8px);
-font-size: 15px;
-opacity: 0.9;
-}
-
-/* CONTENT */
-#stage {
-position: absolute;
-inset: 0;
-display: grid;
-place-items: center;
-pointer-events: none;
-}
-
-#title {
-text-align: center;
-max-width: 85vw;
-}
-
-#title h1 {
-margin: 0;
-font-size: 20px;
-font-weight: 500;
-opacity: 0.95;
-}
-
-#title p {
-margin-top: 10px;
-font-size: 12px;
-opacity: 0.6;
-}
-
-/* HUD */
-#meta {
-position: absolute;
-top: 12px;
-left: 12px;
-font-size: 12px;
-opacity: 0.6;
-}
-
-#controls {
-position: absolute;
-top: 12px;
-right: 12px;
-display: flex;
-gap: 10px;
-z-index: 10;
-}
-
-.btn {
-width: 42px;
-height: 42px;
-border-radius: 50%;
-border: 1px solid rgba(255,255,255,0.3);
-background: rgba(0,0,0,0.5);
-color: #fff;
-font-size: 16px;
-display: grid;
-place-items: center;
-cursor: pointer;
-touch-action: manipulation;
-}
-
-#searchPanel {
-position: absolute;
-top: 64px;
-right: 12px;
-width: min(320px, 90vw);
-padding: 12px;
-border-radius: 14px;
-border: 1px solid rgba(255,255,255,0.25);
-background: rgba(0,0,0,0.7);
+#searchPanel{
+position:absolute; top:64px; right:12px;
+width:min(320px, 90vw);
+padding:12px;
+border-radius:14px;
+border:1px solid rgba(255,255,255,.22);
+background: rgba(0,0,0,.75);
 backdrop-filter: blur(10px);
-display: none;
-z-index: 20;
+display:none;
+z-index:30;
 }
-
-#searchPanel.open {
-display: block;
+#searchPanel.open{ display:block; }
+#searchInput{
+width:100%;
+box-sizing:border-box;
+padding:10px 12px;
+border-radius:10px;
+border:1px solid rgba(255,255,255,.22);
+background: rgba(255,255,255,.06);
+color:#fff;
+outline:none;
 }
-
-#searchInput {
-width: 100%;
-padding: 10px;
-border-radius: 10px;
-border: 1px solid rgba(255,255,255,0.25);
-background: rgba(255,255,255,0.05);
-color: #fff;
-outline: none;
-}
-
-#searchPanel small {
-display: block;
-margin-top: 10px;
-font-size: 11px;
-opacity: 0.6;
-}
+#searchPanel small{ display:block; margin-top:10px; font-size:11px; opacity:.6; }
 </style>
 </head>
 
 <body>
 <div id="app">
-
 <!-- START OVERLAY -->
 <div id="homeOverlay">
-<div class="pill">An infinite art exhibition.</div>
+<!-- onclick diretto: bypass totale dei problemi di listener su iOS -->
+<button id="startBtn" onclick="window.karmasynStart()">An infinite art exhibition.</button>
 </div>
 
-<!-- MAIN STAGE -->
+<!-- STAGE -->
 <div id="stage">
 <div id="title">
 <h1>—</h1>
-<p>Tap to begin.</p>
+<p>Tap the pill to begin.</p>
 </div>
 </div>
 
@@ -164,17 +92,17 @@ opacity: 0.6;
 <div id="meta">00:00 · idle</div>
 
 <div id="controls">
-<div id="searchBtn" class="btn">⌕</div>
-<div id="playBtn" class="btn">▶</div>
+<button id="searchBtn" class="btn" type="button">⌕</button>
+<button id="playBtn" class="btn" type="button">▶</button>
 </div>
 
 <div id="searchPanel">
 <input id="searchInput" placeholder="Search…" />
 <small>No feeds. No saves. Time is the language.</small>
 </div>
-
 </div>
 
+<!-- cache-buster -->
 <script src="app.js?v=20260206-0900"></script>
 </body>
 </html>
