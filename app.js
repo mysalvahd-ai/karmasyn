@@ -112,3 +112,66 @@ setMeta("seek");
 render("Tap the pill to begin.");
 setMeta("idle");
 })();
+async function fetchJSON(url) {
+const r = await fetch(url, { cache: "no-store" });
+if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
+return r.json();
+}
+
+function iiifImageFromManifest(manifest) {
+// v3
+let canvas = manifest.items?.[0] || null;
+// v2 fallback
+if (!canvas && manifest.sequences?.[0]?.canvases?.length) {
+canvas = manifest.sequences[0].canvases[0];
+}
+if (!canvas) throw new Error("IIIF: no canvas");
+
+// v3 body/service
+let body = canvas.items?.[0]?.items?.[0]?.body || null;
+let service = body?.service ? (Array.isArray(body.service) ? body.service[0] : body.service) : null;
+
+// v2 fallback
+if (!body && canvas.images?.[0]) {
+body = canvas.images[0].resource || canvas.images[0].body || null;
+service = canvas.images[0].resource?.service || canvas.images[0].service || null;
+if (Array.isArray(service)) service = service[0];
+}
+
+const direct = body?.id || body?.["@id"];
+if (direct && /\.(jpe?g|png|webp)$/i.test(direct)) return direct;
+
+const sid = service?.id || service?.["@id"];
+if (!sid) throw new Error("IIIF: no image service");
+
+return `${String(sid).replace(/\/$/, "")}/full/!2000,2000/0/default.jpg`;
+}
+
+function setStageImage(url) {
+const stage = document.getElementById("stage");
+if (!stage) return;
+
+stage.innerHTML = "";
+stage.style.position = "relative";
+
+const img = new Image();
+img.src = url;
+img.decoding = "async";
+img.loading = "eager";
+img.style.position = "absolute";
+img.style.inset = "0";
+img.style.width = "100%";
+img.style.height = "100%";
+img.style.objectFit = "contain";
+
+stage.appendChild(img);
+}
+
+async function showRandomIIIF() {
+const list = await fetchJSON("./data/manifests.json");
+const manifestUrl = list[Math.floor(Math.random() * list.length)];
+const manifest = await fetchJSON(manifestUrl);
+const imgUrl = iiifImageFromManifest(manifest);
+setStageImage(imgUrl);
+return { manifestUrl, imgUrl };
+}
