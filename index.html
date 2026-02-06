@@ -41,11 +41,18 @@
 
 <!-- SEARCH PANEL -->
 <div id="searchPanel">
-<input id="searchInput" type="text" placeholder="Search (artist / title)" />
+<form id="searchForm" autocomplete="off">
+<input
+id="searchInput"
+type="search"
+inputmode="search"
+enterkeyhint="search"
+placeholder="Search (artist / title)"
+/>
 <small id="searchHint">Press Enter to jump</small>
-<div id="searchResults"></div>
-</div>
+</form>
 
+<div id="searchResults"></div>
 </div>
 
 <script src="app.js?v=20260206-1200"></script>
