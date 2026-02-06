@@ -2,107 +2,52 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Karmasyn</title>
 
-<style>
-html, body { margin:0; height:100%; background:#000; color:#fff; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; -webkit-tap-highlight-color:transparent; }
-#app { position:fixed; inset:0; overflow:hidden; }
+<!-- stop favicon 404 (optional but nice) -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='black'/><text x='50' y='72' text-anchor='middle' font-size='72' fill='white'>∞</text></svg>">
 
-/* Overlay start (BUTTON!) */
-#homeOverlay{
-position:fixed; inset:0;
-display:grid; place-items:center;
-background: radial-gradient(circle at center, rgba(255,255,255,.08), rgba(0,0,0,.95));
-z-index:9999;
-}
-#homeOverlay.hidden{ display:none; }
-
-#startBtn{
-appearance:none; -webkit-appearance:none;
-border:1px solid rgba(255,255,255,.35);
-background: rgba(0,0,0,.45);
-color:#fff;
-border-radius:999px;
-padding:12px 18px;
-font-size:15px;
-cursor:pointer;
-touch-action: manipulation;
-}
-
-#stage{ position:absolute; inset:0; display:grid; place-items:center; pointer-events:none; }
-#title{ text-align:center; max-width:85vw; }
-#title h1{ margin:0; font-size:20px; font-weight:500; opacity:.95; }
-#title p{ margin:10px 0 0; font-size:12px; opacity:.6; }
-
-#meta{ position:absolute; top:12px; left:12px; font-size:12px; opacity:.6; z-index:5; }
-
-#controls{ position:absolute; top:12px; right:12px; display:flex; gap:10px; z-index:20; }
-.btn{
-width:42px; height:42px; border-radius:999px;
-border:1px solid rgba(255,255,255,.28);
-background: rgba(0,0,0,.55);
-color:#fff; display:grid; place-items:center;
-font-size:16px; cursor:pointer; touch-action: manipulation;
-}
-
-#searchPanel{
-position:absolute; top:64px; right:12px;
-width:min(320px, 90vw);
-padding:12px;
-border-radius:14px;
-border:1px solid rgba(255,255,255,.22);
-background: rgba(0,0,0,.75);
-backdrop-filter: blur(10px);
-display:none;
-z-index:30;
-}
-#searchPanel.open{ display:block; }
-#searchInput{
-width:100%;
-box-sizing:border-box;
-padding:10px 12px;
-border-radius:10px;
-border:1px solid rgba(255,255,255,.22);
-background: rgba(255,255,255,.06);
-color:#fff;
-outline:none;
-}
-#searchPanel small{ display:block; margin-top:10px; font-size:11px; opacity:.6; }
-</style>
+<link rel="stylesheet" href="styles.css?v=1">
 </head>
-
 <body>
 <div id="app">
-<!-- START OVERLAY -->
-<div id="homeOverlay">
-<!-- onclick diretto: bypass totale dei problemi di listener su iOS -->
+
+<!-- START OVERLAY (no button) -->
 <div id="homeOverlay">
 <div class="pill" aria-label="Karmasyn status">
 <div class="title">An infinite exhibition.</div>
 <div class="sub">Loading…</div>
 </div>
 </div>
-</div>
 
-<!-- STAGE -->
+<!-- STAGE (image goes here) -->
 <div id="stage"></div>
 
 <!-- HUD -->
+<div id="hud">
 <div id="meta">00:00 · idle</div>
+<div id="headline">
+<div id="hTitle">—</div>
+<div id="hSub">—</div>
+</div>
+</div>
 
+<!-- CONTROLS -->
 <div id="controls">
-<button id="searchBtn" class="btn" type="button">⌕</button>
-<button id="playBtn" class="btn" type="button">▶</button>
+<button id="searchBtn" aria-label="Search">🔎</button>
+<button id="playBtn" aria-label="Play/Pause">⏸</button>
 </div>
 
+<!-- SEARCH PANEL -->
 <div id="searchPanel">
-<input id="searchInput" placeholder="Search…" />
-<small>No feeds. No saves. Time is the language.</small>
-</div>
+<input id="searchInput" type="text" placeholder="Search (artist / title)" />
+<small id="searchHint">Press Enter to jump</small>
+<div id="searchResults"></div>
 </div>
 
-<!-- cache-buster -->
-<script src="app.js?v=20260206-0900"></script>
+</div>
+
+<script src="app.js?v=20260206-1200"></script>
 </body>
 </html>
