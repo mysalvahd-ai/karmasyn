@@ -5,28 +5,61 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Karmasyn</title>
 <link rel="stylesheet" href="styles.css" />
+<style>
+/* Safety minimal CSS to guarantee clickability even if styles.css is incomplete */
+html, body { height: 100%; margin: 0; background: #000; color: #fff; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+#app { position: fixed; inset: 0; overflow: hidden; }
+.center { position: absolute; inset: 0; display: grid; place-items: center; }
+.pill { padding: 10px 14px; border: 1px solid rgba(255,255,255,.25); border-radius: 999px; background: rgba(0,0,0,.35); backdrop-filter: blur(6px); }
+.home-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(ellipse at center, rgba(255,255,255,.06), rgba(0,0,0,.92)); z-index: 50; cursor: pointer; }
+.home-overlay.hidden { display: none; }
+.hud { position: absolute; inset: 0; pointer-events: none; }
+.meta { position: absolute; left: 16px; bottom: 16px; opacity: .85; font-size: 12px; }
+.hint { position: absolute; left: 16px; top: 16px; opacity: .65; font-size: 12px; }
+.controls { position: absolute; right: 12px; top: 12px; display: flex; gap: 10px; pointer-events: auto; z-index: 60; }
+.icon-btn { width: 40px; height: 40px; border-radius: 999px; border: 1px solid rgba(255,255,255,.22); background: rgba(0,0,0,.35); color: #fff; display: grid; place-items: center; cursor: pointer; }
+.icon-btn:active { transform: scale(.98); }
+.search-panel { position: absolute; right: 12px; top: 64px; width: min(360px, calc(100vw - 24px)); border-radius: 14px; border: 1px solid rgba(255,255,255,.18); background: rgba(0,0,0,.55); backdrop-filter: blur(10px); padding: 12px; display: none; z-index: 60; }
+.search-panel.open { display: block; }
+.search-panel input { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color: #fff; outline: none; }
+.search-panel .small { margin-top: 10px; opacity: .65; font-size: 12px; line-height: 1.35; }
+.art-title { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); text-align: center; max-width: 88vw; pointer-events: none; }
+.art-title h1 { margin: 0; font-weight: 500; font-size: clamp(16px, 2.4vw, 22px); opacity: .95; }
+.art-title p { margin: 10px 0 0; font-size: 12px; opacity: .6; }
+</style>
 </head>
 <body>
-<div id="app"></div>
-
-<div id="homeOverlay" class="home-overlay">
-<div class="home-text">An infinite art exhibition.</div>
+<div id="app">
+<!-- Overlay: click/tap to start -->
+<div id="homeOverlay" class="home-overlay" role="button" aria-label="Start">
+<div class="pill">An infinite art exhibition.</div>
 </div>
 
-<div id="meta" class="meta">
-<div id="metaLine1" class="meta-line"></div>
-<div id="metaLine2" class="meta-line"></div>
+<!-- Main stage -->
+<div id="stage" class="center">
+<div class="art-title" id="artTitle" aria-live="polite">
+<h1>—</h1>
+<p>RITUAL is paused. Tap anywhere to begin.</p>
+</div>
 </div>
 
-<div id="hint" class="hint"></div>
+<!-- HUD -->
+<div class="hud">
+<div id="hint" class="hint">RITUAL · tap to stop · search to jump</div>
+<div id="meta" class="meta">00:00 · idle</div>
 
-<button id="searchBtn" class="icon-btn">⌕</button>
-<button id="playBtn" class="icon-btn">▶</button>
+<div class="controls">
+<button id="searchBtn" class="icon-btn" title="Search" aria-label="Search">⌕</button>
+<button id="playBtn" class="icon-btn" title="Play/Pause" aria-label="Play Pause">▶</button>
+</div>
 
-<div id="searchPanel" class="search-panel">
-<form id="searchForm">
-<input id="searchInput" type="text" placeholder="Search" />
-</form>
+<div id="searchPanel" class="search-panel" aria-hidden="true">
+<input id="searchInput" type="text" placeholder="Search an artist, a work, a keyword…" />
+<div class="small">
+SEEK is a doorway. No saves, no feeds. Type and press Enter.
+</div>
+</div>
+</div>
 </div>
 
 <script src="app.js"></script>
