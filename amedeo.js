@@ -1,140 +1,161 @@
-/* AMEDEO — Modigliani only (prototype)
-- autoplay 4s
-- tap left/right prev/next
-- resumes autoplay after user stops
-- curator note every 5 works
-*/
+/* AMADEO — single exhibition prototype (Modigliani) */
 
-const AUTOPLAY_MS = 4000;
-const RESUME_AFTER_MS = 1600;
-const NOTE_EVERY = 5;
-const NOTE_SHOW_MS = 2500;
-
-const $ = id => document.getElementById(id);
-const imgA = $("imgA");
-const imgB = $("imgB");
-const loading = $("loading");
-const metaYear = $("metaYear");
-const metaLoc = $("metaLoc");
-const note = $("note");
-const noteText = $("noteText");
-
-let activeImg = imgA;
-let index = 0;
-let autoplayTimer = null;
-let idleTimer = null;
-let lastInteraction = Date.now();
-
-function filePath(filename){
-return "https://commons.wikimedia.org/wiki/Special:FilePath/" + encodeURIComponent(filename);
-}
-
-const exhibition = {
-name: "MODIGLIANI",
+const EXHIBITION = {
+title: "MODIGLIANI",
+// NOTE: using Wikimedia "thumb" URLs (960px) to avoid huge originals that often stall on mobile.
 works: [
-// These are filenames on Wikimedia Commons. If one fails, replace it with another Commons filename.
-{ title:"Portrait of Jeanne Hébuterne", year:"1918", location:"—", img:filePath("Amedeo Modigliani - Jeanne Hébuterne - 1918.jpg") },
-{ title:"Léon Bakst", year:"1917", location:"National Gallery of Art, Washington", img:filePath("Amedeo Modigliani, Léon Bakst, 1917, NGA 46648.jpg") },
-{ title:"Girl in a Green Blouse", year:"1917", location:"National Gallery of Art, Washington", img:filePath("Amedeo Modigliani, Girl in a Green Blouse, 1917, NGA 46520.jpg") },
-{ title:"Madame Amédée (Woman with Cigarette)", year:"1918", location:"National Gallery of Art, Washington", img:filePath("Amedeo Modigliani, Madame Amédée (Woman with Cigarette), 1918, NGA 46647.jpg") },
-{ title:"Woman with Red Hair", year:"1917", location:"National Gallery of Art, Washington", img:filePath("Amedeo Modigliani, Woman with Red Hair, 1917, NGA 46651.jpg") },
+{
+title: "Léon Bakst",
+year: "1917",
+location: "National Gallery of Art, Washington",
+img: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d5/Amedeo_Modigliani%2C_L%C3%A9on_Bakst%2C_1917%2C_NGA_46648.jpg/960px-Amedeo_Modigliani%2C_L%C3%A9on_Bakst%2C_1917%2C_NGA_46648.jpg"
+},
+{
+title: "Girl in a Green Blouse",
+year: "1917",
+location: "National Gallery of Art, Washington",
+img: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/35/Amedeo_Modigliani_-_Girl_in_a_green_blouse_%281917%29.jpg/960px-Amedeo_Modigliani_-_Girl_in_a_green_blouse_%281917%29.jpg"
+},
+{
+title: "Woman with Red Hair",
+year: "1917",
+location: "National Gallery of Art, Washington",
+img: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Amedeo_Modigliani%2C_Woman_with_Red_Hair%2C_1917%2C_NGA_46651.jpg/960px-Amedeo_Modigliani%2C_Woman_with_Red_Hair%2C_1917%2C_NGA_46651.jpg"
+},
+{
+title: "Madame Amédée (Woman with Cigarette)",
+year: "1918",
+location: "National Gallery of Art, Washington",
+img: "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/Amedeo_Modigliani%2C_Madame_Am%C3%A9d%C3%A9e_%28Woman_with_Cigarette%29%2C_1918%2C_NGA_46647.jpg/960px-Amedeo_Modigliani%2C_Madame_Am%C3%A9d%C3%A9e_%28Woman_with_Cigarette%29%2C_1918%2C_NGA_46647.jpg"
+},
+{
+title: "Beatrice (Portrait de Béatrice Hastings)",
+year: "c. 1915–1916",
+location: "Barnes Foundation, Philadelphia",
+img: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/Amedeo_Modigliani_-_Beatrice_%28Portrait_de_B%C3%A9atrice_Hastings%29_-_BF361_-_Barnes_Foundation.jpg/960px-Amedeo_Modigliani_-_Beatrice_%28Portrait_de_B%C3%A9atrice_Hastings%29_-_BF361_-_Barnes_Foundation.jpg"
+},
+{
+title: "Boy in Sailor Suit",
+year: "c. 1918",
+location: "Barnes Foundation, Philadelphia",
+img: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Amedeo_Modigliani_-_Boy_in_Sailor_Suit_-_BF369_-_Barnes_Foundation.jpg/960px-Amedeo_Modigliani_-_Boy_in_Sailor_Suit_-_BF369_-_Barnes_Foundation.jpg"
+}
+],
 
-{ title:"Beatrice Hastings", year:"c.1915", location:"Barnes Foundation", img:filePath("Amedeo Modigliani - Beatrice (Portrait de Béatrice Hastings) - BF361 - Barnes Foundation.jpg") },
-{ title:"Boy in Sailor Suit", year:"c.1918", location:"Barnes Foundation", img:filePath("Amedeo Modigliani - Boy in Sailor Suit - BF369 - Barnes Foundation.jpg") },
-{ title:"Léopold Zborowski", year:"c.1916", location:"Barnes Foundation", img:filePath("Amedeo Modigliani - Léopold Zborowksi - BF261 - Barnes Foundation.jpg") },
-{ title:"Young Woman in Blue", year:"c.1918", location:"Barnes Foundation", img:filePath("Amedeo Modigliani - Young Woman in Blue (Giovane donna in azzurro) - BF268 - Barnes Foundation.jpg") },
-{ title:"Redheaded Girl in Evening Dress", year:"c.1918", location:"Barnes Foundation", img:filePath("Amedeo Modigliani - Redheaded Girl in Evening Dress (Jeune fille rousse en robe de soir) - BF206 - Barnes Foundation.jpg") },
-
-{ title:"Cagnes Landscape", year:"1919", location:"—", img:filePath("Modigliani - Cagnes Landscape, 1919.jpg") },
-{ title:"La Petite Servante", year:"—", location:"Kunsthaus Zürich", img:filePath("Amedeo Modigliani - La Petite Servante - 1851 - Kunsthaus Zürich.jpg") },
-
-// ✅ Add more works here (up to 40)
+// Minimal “AI notes” shown every 5 works (prototype: soft, human, non-encyclopedic)
+aiNotes: [
+"Modigliani paints faces as if they were quiet masks: elongated, calm, almost inevitable. It’s intimacy without noise.",
+"His portraits feel like a single breath: less “likeness” and more presence — the person as a mood.",
+"The emptiness in the eyes isn’t cold: it’s space. A pause where you project your own feeling."
 ]
 };
 
-const curatorNotes = [
-"The gaze does not explain itself. It waits.",
-"Line is the structure. Everything else is quiet.",
-"The face becomes a mask, not a portrait.",
-"Intimacy here is silent, not emotional.",
-"What looks simple is deeply intentional."
-];
+const artImg = document.getElementById("artImg");
+const loading = document.getElementById("loading");
+const exhTitle = document.getElementById("exhTitle");
+const artLine = document.getElementById("artLine");
+const artLoc = document.getElementById("artLoc");
+const aiCard = document.getElementById("aiCard");
+const aiText = document.getElementById("aiText");
 
-function setMeta(work) {
-metaYear.textContent = work.year ? `• ${work.year}` : "";
-metaLoc.textContent = `${work.title || ""}${work.location ? " — " + work.location : ""}`.trim();
+const tapLeft = document.getElementById("tapLeft");
+const tapRight = document.getElementById("tapRight");
+
+exhTitle.textContent = EXHIBITION.title;
+
+let idx = 0;
+let timer = null;
+let resumeTimer = null;
+const AUTO_MS = 4000;
+const RESUME_AFTER_MS = 1200; // after manual tap, wait a bit then resume auto
+
+function clearTimers(){
+if (timer) { clearInterval(timer); timer = null; }
+if (resumeTimer) { clearTimeout(resumeTimer); resumeTimer = null; }
 }
 
-function showNoteIfNeeded() {
-if ((index + 1) % NOTE_EVERY === 0) {
-noteText.textContent = curatorNotes[Math.floor((index / NOTE_EVERY)) % curatorNotes.length];
-note.classList.add("is-on");
-setTimeout(() => note.classList.remove("is-on"), NOTE_SHOW_MS);
-} else {
-note.classList.remove("is-on");
-}
+function startAuto(){
+clearTimers();
+timer = setInterval(next, AUTO_MS);
 }
 
-function swapImage(url) {
-const next = (activeImg === imgA) ? imgB : imgA;
-next.onload = () => {
-imgA.classList.remove("is-on");
-imgB.classList.remove("is-on");
-next.classList.add("is-on");
-activeImg = next;
-loading.classList.add("hide");
-};
-next.onerror = () => {
-// If one image fails, skip to next
-nextWork();
-};
-next.src = url;
+function pauseAndResume(){
+if (timer) { clearInterval(timer); timer = null; }
+if (resumeTimer) clearTimeout(resumeTimer);
+resumeTimer = setTimeout(() => startAuto(), RESUME_AFTER_MS);
 }
 
-function render() {
-const work = exhibition.works[index];
-if (!work) return;
+function showAIIfNeeded(){
+// Every 5 works → show AI card (prototype behavior)
+const show = ((idx + 1) % 5 === 0);
+if (!show) {
+aiCard.hidden = true;
+return;
+}
+const noteIdx = Math.floor((idx + 1) / 5 - 1) % EXHIBITION.aiNotes.length;
+aiText.textContent = EXHIBITION.aiNotes[noteIdx];
+aiCard.hidden = false;
+}
+
+function setMeta(work){
+artLine.textContent = `${work.title} · ${work.year}`;
+artLoc.textContent = work.location ? work.location : "";
+}
+
+function loadImage(url){
+return new Promise((resolve, reject) => {
+const img = new Image();
+img.crossOrigin = "anonymous";
+img.onload = () => resolve(url);
+img.onerror = () => reject(new Error("img load failed"));
+img.src = url;
+});
+}
+
+async function render(){
+const work = EXHIBITION.works[idx];
 setMeta(work);
-showNoteIfNeeded();
-swapImage(work.img);
+showAIIfNeeded();
+
+loading.style.display = "block";
+artImg.classList.remove("is-ready");
+
+try{
+await loadImage(work.img);
+artImg.src = work.img;
+// small delay makes fade-in smoother on iOS
+requestAnimationFrame(() => {
+artImg.classList.add("is-ready");
+loading.style.display = "none";
+});
+}catch(e){
+// If one image fails, skip to next quickly (but don’t lock in infinite spinner)
+loading.textContent = "SKIPPING…";
+setTimeout(() => {
+loading.textContent = "LOADING";
+next();
+}, 450);
+}
 }
 
-function nextWork() {
-index = (index + 1) % exhibition.works.length;
+function next(){
+idx = (idx + 1) % EXHIBITION.works.length;
+render();
+}
+function prev(){
+idx = (idx - 1 + EXHIBITION.works.length) % EXHIBITION.works.length;
 render();
 }
 
-function prevWork() {
-index = (index - 1 + exhibition.works.length) % exhibition.works.length;
-render();
-}
+// Tap controls
+tapLeft.addEventListener("click", () => { pauseAndResume(); prev(); });
+tapRight.addEventListener("click", () => { pauseAndResume(); next(); });
 
-function stopAutoplay() {
-clearInterval(autoplayTimer);
-}
-
-function startAutoplay() {
-stopAutoplay();
-autoplayTimer = setInterval(() => {
-if (Date.now() - lastInteraction > AUTOPLAY_MS - 200) nextWork();
-}, AUTOPLAY_MS);
-}
-
-function userAction() {
-lastInteraction = Date.now();
-stopAutoplay();
-clearTimeout(idleTimer);
-idleTimer = setTimeout(startAutoplay, RESUME_AFTER_MS);
-}
-
-$("tapZones").addEventListener("click", e => {
-userAction();
-const dir = e.target?.dataset?.dir;
-if (dir === "1") nextWork();
-else prevWork();
+// Also allow keyboard on desktop
+window.addEventListener("keydown", (e) => {
+if (e.key === "ArrowLeft") { pauseAndResume(); prev(); }
+if (e.key === "ArrowRight") { pauseAndResume(); next(); }
 });
 
-// Start
-render();
-startAutoplay();
-
+// Boot
+render().then(() => startAuto());
