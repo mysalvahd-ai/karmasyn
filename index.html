@@ -2,63 +2,58 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Karmasyn</title>
-
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='black'/><text x='50' y='72' text-anchor='middle' font-size='72' fill='white'>∞</text></svg>">
-<link rel="stylesheet" href="styles.css?v=20260206-1300">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>AMADEO — infinite exhibitions</title>
+<link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-<div id="app">
+<div class="stage">
+<header class="header">
+<div class="brand">AMADEO</div>
+<div class="sub">an infinite exhibition</div>
+</header>
 
-<!-- Overlay (no button) -->
-<div id="homeOverlay">
-<div class="pill" aria-label="Karmasyn status">
-<div class="title">An infinite exhibition.</div>
-<div class="sub">Loading…</div>
+<main class="viewer">
+<div class="art" id="art">
+<div class="loading" id="loading">LOADING</div>
+<img id="imgA" alt="" />
+<img id="imgB" alt="" />
+</div>
+
+<div class="tapZones" id="tapZones" aria-hidden="true">
+<div class="zone" data-dir="-1"></div>
+<div class="zone" data-dir="1"></div>
+</div>
+
+<div class="note" id="note">
+<div class="noteCard">
+<div class="noteLabel">Curator note</div>
+<div class="noteText" id="noteText"></div>
 </div>
 </div>
 
-<!-- Stage -->
-<div id="stage"></div>
-
-<!-- HUD -->
-<div id="hud" class="hud">
-<div id="meta">00:00 · loading</div>
-<div id="headline">
-<div id="hTitle">—</div>
-<div id="hSub">—</div>
+<div class="meta">
+<div class="metaCard">
+<div class="metaTop">
+<div class="metaTitle" id="metaTitle">—</div>
+<div class="metaYear" id="metaYear"></div>
+</div>
+<div class="metaLoc" id="metaLoc"></div>
 </div>
 </div>
 
-<!-- Controls -->
-<div id="controls" class="hud">
-<button id="searchBtn" aria-label="Search">🔎</button>
-<button id="playBtn" aria-label="Play/Pause">⏸</button>
+<div class="toast" id="toast"></div>
+</main>
+
+<footer class="bottom">
+<div class="searchWrap">
+<input id="search" class="searchInput" type="text"
+placeholder="Search an exhibition… (try: picasso)" autocomplete="off" />
+<div class="pill">ENTER</div>
+</div>
+</footer>
 </div>
 
-<!-- Search Panel -->
-<div id="searchPanel">
-<form id="searchForm" autocomplete="off">
-<input
-id="searchInput"
-type="search"
-inputmode="search"
-enterkeyhint="search"
-placeholder="Search (artist / period / museum)"
-/>
-<small id="searchHint">Press Enter to build an exhibition</small>
-</form>
-<div id="searchResults"></div>
-</div>
-
-<!-- Tiny hint (mobile gestures) -->
-<div id="gestureHint" class="hud">
-Swipe ←/→ to navigate · Tap to hide UI · Double-tap to pause
-</div>
-
-</div>
-
-<script src="app.js?v=20260206-1300"></script>
+<script src="./app.js"></script>
 </body>
 </html>
