@@ -4,54 +4,41 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>AMADEO — an infinite exhibition</title>
-<link rel="stylesheet" href="./amedeo.css?v=1">
+<link rel="stylesheet" href="styles.css" />
 </head>
+
 <body>
-<div class="stage">
-<header class="header">
-<div class="brand">AMADEO</div>
-<div class="sub">an infinite exhibition</div>
+<header class="topbar">
+<div class="brand">
+<div class="brand-title">AMADEO</div>
+<div class="brand-sub">an infinite exhibition</div>
+</div>
 </header>
 
-<main class="viewer">
-<div class="art" id="art">
+<main class="stage" id="stage">
+<div class="image-wrap" id="imageWrap">
+<img id="artImg" alt="" crossorigin="anonymous" />
+<div class="fade" aria-hidden="true"></div>
+
+<div class="meta" id="meta">
+<div class="exh-title" id="exhTitle">MODIGLIANI</div>
+<div class="art-line" id="artLine">Loading…</div>
+<div class="art-loc" id="artLoc"></div>
+</div>
+
+<div class="ai-card" id="aiCard" hidden>
+<div class="ai-kicker">AI NOTE</div>
+<div class="ai-text" id="aiText"></div>
+</div>
+
 <div class="loading" id="loading">LOADING</div>
-<img id="imgA" alt="" />
-<img id="imgB" alt="" />
 </div>
 
-<div class="tapZones" id="tapZones" aria-hidden="true">
-<div class="zone" data-dir="-1"></div>
-<div class="zone" data-dir="1"></div>
-</div>
-
-<div class="note" id="note">
-<div class="noteCard">
-<div class="noteLabel">Curator note</div>
-<div class="noteText" id="noteText"></div>
-</div>
-</div>
-
-<div class="meta">
-<div class="metaCard">
-<div class="metaTop">
-<div class="metaTitle" id="metaTitle">MODIGLIANI</div>
-<div class="metaYear" id="metaYear"></div>
-</div>
-<div class="metaLoc" id="metaLoc"></div>
-</div>
-</div>
+<!-- Tap zones -->
+<button class="tap tap-left" id="tapLeft" aria-label="Previous"></button>
+<button class="tap tap-right" id="tapRight" aria-label="Next"></button>
 </main>
-</div>
 
-<!-- Kill any old service workers (important for iPhone cache) -->
-<script>
-if ('serviceWorker' in navigator) {
-navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister()));
-}
-</script>
-
-<script src="./amedeo.js?v=1"></script>
+<script src="app.js"></script>
 </body>
 </html>
-
