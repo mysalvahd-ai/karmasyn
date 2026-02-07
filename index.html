@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>AMADEO — infinite exhibitions</title>
-<link rel="stylesheet" href="./styles.css" />
+<title>AMADEO — an infinite exhibition</title>
+<link rel="stylesheet" href="./amedeo.css?v=1">
 </head>
 <body>
 <div class="stage">
@@ -35,25 +35,23 @@
 <div class="meta">
 <div class="metaCard">
 <div class="metaTop">
-<div class="metaTitle" id="metaTitle">—</div>
+<div class="metaTitle" id="metaTitle">MODIGLIANI</div>
 <div class="metaYear" id="metaYear"></div>
 </div>
 <div class="metaLoc" id="metaLoc"></div>
 </div>
 </div>
-
-<div class="toast" id="toast"></div>
 </main>
-
-<footer class="bottom">
-<div class="searchWrap">
-<input id="search" class="searchInput" type="text"
-placeholder="Search an exhibition… (try: picasso)" autocomplete="off" />
-<div class="pill">ENTER</div>
-</div>
-</footer>
 </div>
 
-<script src="./app.js"></script>
+<!-- Kill any old service workers (important for iPhone cache) -->
+<script>
+if ('serviceWorker' in navigator) {
+navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister()));
+}
+</script>
+
+<script src="./amedeo.js?v=1"></script>
 </body>
 </html>
+
